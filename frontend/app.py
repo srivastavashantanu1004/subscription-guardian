@@ -46,17 +46,50 @@ def fetch_subscriptions():
     return st.session_state.get("subscriptions", [])
 
 def add_subscription_to_db(name, plan, price):
+    existing = fetch_subscriptions()
+    
+    # Check table structure dynamically based on existing rows
+    if existing and isinstance(existing[0], dict):
+        sample = existing[0]
+        payload = {}
+        
+        # Determine name column
+        if "service_name" in sample:
+            payload["service_name"] = name
+        elif "title" in sample:
+            payload["title"] = name
+        else:
+            payload["name"] = name
+            
+        # Determine plan column
+        if "plan_name" in sample:
+            payload["plan_name"] = plan
+        elif "tier" in sample:
+            payload["tier"] = plan
+        else:
+            payload["plan"] = plan
+            
+        # Determine price column
+        if "amount" in sample:
+            payload["amount"] = price
+        elif "cost" in sample:
+            payload["cost"] = price
+        else:
+            payload["price"] = price
+    else:
+        # Default fallback structure
+        payload = {"service_name": name, "plan": plan, "price": price}
+
     if supabase:
-        try:
-            supabase.table("subscriptions").insert({
-                "name": name,
-                "plan": plan,
-                "price": price
-            }).execute()
-            return True
-        except Exception as e:
-            st.error(f"Database Error: {str(e)}")
-            return False
+        # Try insert with dynamic payload first, fallback to basic schema if needed
+        for p in [payload, {"service_name": name, "plan": plan, "price": price}, {"name": name, "plan": plan, "price": price}]:
+            try:
+                supabase.table("subscriptions").insert(p).execute()
+                return True
+            except Exception:
+                continue
+        st.error("Failed to insert record into Supabase. Please check your table column names.")
+        return False
     else:
         if "subscriptions" not in st.session_state:
             st.session_state.subscriptions = []
@@ -79,14 +112,15 @@ def delete_subscription_from_db(sub_id, index):
 
 # Safe Field Parsers
 def get_sub_name(sub):
-    return sub.get("name") or "Unknown Service"
+    return sub.get("name") or sub.get("service_name") or sub.get("title") or "Unknown Service"
 
 def get_sub_plan(sub):
-    return sub.get("plan") or "Standard"
+    return sub.get("plan") or sub.get("plan_name") or sub.get("tier") or "Standard"
 
 def get_sub_price(sub):
+    val = sub.get("price") if "price" in sub else sub.get("amount") if "amount" in sub else sub.get("cost", 0.0)
     try:
-        return float(sub.get("price", 0.0))
+        return float(val)
     except (ValueError, TypeError):
         return 0.0
 
