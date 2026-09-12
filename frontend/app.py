@@ -147,7 +147,7 @@ if st.button("Review Text"):
             client = anthropic.Anthropic(api_key=ACTIVE_KEY)
             
             response = client.messages.create(
-                model="claude-sonnet-4-6-20240620",
+                model="claude-haiku-4-5-20240620",
                 max_tokens=500,
                 messages=[{
                     "role": "user", 
