@@ -1,4 +1,8 @@
 import os
+import re
+import imaplib
+import email
+from email.header import decode_header
 import streamlit as st
 import anthropic
 import pandas as pd
@@ -8,26 +12,22 @@ from supabase import create_client, Client
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Subscription Guardian", page_icon="💳", layout="wide")
 
-# --- CUSTOM CSS (Polished Presentation & Light Theme Enforcement) ---
+# --- CUSTOM CSS (Clean Presentation & High Contrast) ---
 st.markdown("""
 <style>
-    /* Hide top header bar, menu, and Streamlit branding */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Global App Background */
     .stApp {
         background-color: #ffffff !important;
         color: #1e293b !important;
     }
     
-    /* Force Dark Color for Titles, Headers, Labels, and Body Text */
     h1, h2, h3, h4, h5, h6, label, p, span, div {
         color: #0f172a !important;
     }
 
-    /* Metric Display Values */
     [data-testid="stMetricValue"] {
         font-size: 2rem !important;
         font-weight: 700 !important;
@@ -39,7 +39,6 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Form Inputs & Selectboxes */
     .stTextInput input, .stNumberInput input, .stTextArea textarea, div[data-baseweb="select"] {
         border-radius: 8px !important;
         border: 1px solid #cbd5e1 !important;
@@ -47,7 +46,6 @@ st.markdown("""
         color: #0f172a !important;
     }
     
-    /* Buttons */
     .stButton>button {
         border-radius: 8px !important;
         font-weight: 600 !important;
@@ -83,7 +81,7 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception:
         pass
 
-# --- DATABASE OPERATIONS (CRUD) ---
+# --- DATABASE OPERATIONS ---
 def fetch_subscriptions():
     if supabase:
         try:
@@ -125,15 +123,82 @@ def delete_subscription_from_db(sub_id, index):
             return True
     return False
 
+# --- EMAIL SCANNING (IMAP + AI PARSER) ---
+def parse_receipt_with_ai(email_body):
+    """Extract vendor name and price using Anthropic Claude."""
+    try:
+        headers = {}
+        if WORKSPACE_ID:
+            headers["anthropic-workspace-id"] = WORKSPACE_ID
+
+        client = anthropic.Anthropic(api_key=ACTIVE_KEY, default_headers=headers if headers else None)
+        
+        prompt = (
+            "Extract the subscription service name and monthly price from the following receipt text.\n"
+            "Return ONLY a JSON object with keys 'name' (string) and 'price' (numeric float).\n"
+            f"Receipt Text:\n{email_body[:1500]}"
+        )
+        
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=150,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        raw_res = response.content[0].text
+        # Basic extraction fallback
+        import json
+        match = re.search(r'\{.*\}', raw_res, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+    except Exception:
+        pass
+    return None
+
+def scan_inbox_for_receipts(email_address, app_password, imap_server="imap.gmail.com"):
+    """Connect to user inbox via IMAP and scan recent receipt emails."""
+    scanned_items = []
+    try:
+        mail = imaplib.IMAP4_SSL(imap_server)
+        mail.login(email_address, app_password)
+        mail.select("inbox")
+        
+        # Search for payment confirmation emails
+        status, messages = mail.search(None, '(OR (SUBJECT "Receipt") (SUBJECT "Invoice"))')
+        email_ids = messages[0].split()[-5:] # Scan last 5 matching emails
+        
+        for e_id in email_ids:
+            _, msg_data = mail.fetch(e_id, '(RFC822)')
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            if part.get_content_type() == "text/plain":
+                                body = part.get_payload(decode=True).decode(errors="ignore")
+                                break
+                    else:
+                        body = msg.get_payload(decode=True).decode(errors="ignore")
+                    
+                    if body:
+                        parsed = parse_receipt_with_ai(body)
+                        if parsed and parsed.get("name") and parsed.get("price"):
+                            scanned_items.append(parsed)
+        mail.logout()
+    except Exception as e:
+        st.error(f"Email Connection Error: {str(e)}")
+    return scanned_items
+
 # --- HEADER SECTION ---
 st.title("Subscription Guardian")
-st.write("Track recurring commitments, visualize annual projections, and analyze contract terms with AI.")
+st.write("Track monthly expenses, auto-scan e-receipts from your inboxes, and optimize redundant subscriptions.")
 
 subscriptions = fetch_subscriptions()
 
 st.write("")
 
-# --- ANALYTICS & METRICS DASHBOARD ---
+# --- METRICS DASHBOARD ---
 total_monthly = sum(float(sub["price"]) for sub in subscriptions)
 total_yearly = total_monthly * 12
 
@@ -147,48 +212,107 @@ with m3:
 
 st.write("---")
 
-# --- VISUAL BREAKDOWN CHART ---
+# --- SPENDING DISTRIBUTION ---
 if subscriptions:
-    st.subheader("Spending Distribution")
+    st.subheader("Spending Breakdown")
     chart_df = pd.DataFrame([
         {"Service": sub["name"], "Monthly Cost (₹)": float(sub["price"])}
         for sub in subscriptions
     ]).set_index("Service")
-    
     st.bar_chart(chart_df, y="Monthly Cost (₹)")
     st.write("---")
 
-# --- ADD NEW SUBSCRIPTION FORM ---
-st.subheader("Add Subscription")
-with st.form("add_sub_form", clear_on_submit=True):
-    col_a, col_b, col_c = st.columns([2, 2, 1])
-    with col_a:
-        name = st.text_input("Service Name", placeholder="e.g. Netflix, Gym, AWS")
-    with col_b:
-        plan = st.text_input("Plan Details", placeholder="e.g. Premium Tier, Annual")
-    with col_c:
-        price = st.number_input("Cost (₹/mo)", min_value=0.00, step=10.00, value=0.00)
+# --- MULTI-EMAIL E-RECEIPT INGESTION ---
+st.subheader("Connect Inbox & Auto-Scan Receipts")
+st.write("Link your email account (via App Password) to auto-detect monthly digital receipts and invoices.")
+
+with st.expander("📬 Add & Scan Email Account"):
+    e_col1, e_col2, e_col3 = st.columns([2, 2, 1])
+    with e_col1:
+        user_email = st.text_input("Email Address", placeholder="user@gmail.com")
+    with e_col2:
+        user_pass = st.text_input("App Password / Secret", type="password", placeholder="xxxx xxxx xxxx xxxx")
+    with e_col3:
+        imap_host = st.selectbox("Provider", ["imap.gmail.com", "outlook.office365.com", "imap.mail.yahoo.com"])
     
-    submitted = st.form_submit_button("Save Subscription")
-    if submitted:
-        if not name.strip():
-            st.error("Please enter a service name.")
-        elif not plan.strip():
-            st.error("Please specify plan details.")
-        elif price <= 0:
-            st.error("Please enter a valid monthly price.")
+    if st.button("Scan Inbox for Receipts"):
+        if user_email and user_pass:
+            with st.spinner("Connecting and auditing email receipts..."):
+                found_items = scan_inbox_for_receipts(user_email, user_pass, imap_host)
+                if found_items:
+                    added_count = 0
+                    for item in found_items:
+                        if add_subscription_to_db(item["name"], "Auto-Detected Email Receipt", float(item["price"])):
+                            added_count += 1
+                    st.success(f"Successfully imported {added_count} subscriptions from your email!")
+                    st.rerun()
+                else:
+                    st.info("No new subscription receipts detected in recent messages.")
         else:
-            if add_subscription_to_db(name.strip(), plan.strip(), price):
-                st.success(f"Added {name} successfully.")
-                st.rerun()
+            st.warning("Please provide both email address and app password.")
 
 st.write("---")
 
-# --- ACTIVE SUBSCRIPTIONS & MANAGEMENT ---
-st.subheader("Active Subscriptions")
+# --- SMART AI RECOMMENDATIONS & CONSOLIDATION ENGINE ---
+st.subheader("AI Subscription Optimizer")
+st.write("Detect overlapping services and identify potential savings.")
 
-# Search / Filter Bar
-search_query = st.text_input("🔍 Search subscriptions", placeholder="Filter by service name...").strip().lower()
+if st.button("Generate Optimization Report"):
+    if len(subscriptions) < 2:
+        st.warning("Add at least 2 subscriptions to run redundancy analysis.")
+    else:
+        with st.spinner("Analyzing active subscriptions for redundancy..."):
+            try:
+                sub_summary = "\n".join([f"- {s['name']}: {s['plan']} (₹{s['price']}/mo)" for s in subscriptions])
+                
+                headers = {}
+                if WORKSPACE_ID:
+                    headers["anthropic-workspace-id"] = WORKSPACE_ID
+                client = anthropic.Anthropic(api_key=ACTIVE_KEY, default_headers=headers if headers else None)
+                
+                prompt = (
+                    "You are a financial savings advisor. Analyze this list of user subscriptions:\n"
+                    f"{sub_summary}\n\n"
+                    "1. Identify any overlapping or redundant services (e.g. multiple music streaming, cloud storage, or video platforms).\n"
+                    "2. Give actionable advice on which service to consider canceling.\n"
+                    "3. Estimate potential monthly and annual savings.\n"
+                    "Keep the output clean, structured, and formatted in Markdown."
+                )
+                
+                res = client.messages.create(
+                    model="claude-3-5-sonnet-20240620",
+                    max_tokens=400,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                
+                st.markdown(res.content[0].text)
+            except Exception as e:
+                st.error(f"Failed to generate advice: {str(e)}")
+
+st.write("---")
+
+# --- ADD & MANAGE SUBSCRIPTIONS ---
+st.subheader("Active Subscriptions & Manual Entry")
+
+with st.form("add_sub_form", clear_on_submit=True):
+    col_a, col_b, col_c = st.columns([2, 2, 1])
+    with col_a:
+        name = st.text_input("Service Name", placeholder="e.g. Spotify, Apple Music")
+    with col_b:
+        plan = st.text_input("Plan Details", placeholder="e.g. Individual, Family")
+    with col_c:
+        price = st.number_input("Cost (₹/mo)", min_value=0.00, step=10.00, value=0.00)
+    
+    submitted = st.form_submit_button("Add Subscription")
+    if submitted:
+        if name and plan and price > 0:
+            if add_subscription_to_db(name.strip(), plan.strip(), price):
+                st.success(f"Added {name}.")
+                st.rerun()
+        else:
+            st.error("Please fill out all fields validly.")
+
+search_query = st.text_input("🔍 Search active subscriptions", placeholder="Filter list...").strip().lower()
 
 filtered_subs = [
     (idx, sub) for idx, sub in enumerate(subscriptions)
@@ -218,73 +342,10 @@ Hello Support Team,
 
 I am writing to formally request the cancellation of my {sub['name']} subscription ({sub['plan']} plan) effective immediately.
 
-Please disable auto-renewal for my account and confirm in writing that no further charges will occur.
+Please turn off auto-renewal for my account and confirm cancellation in writing.
 
 Thank you,
-[Your Name]
-[Your Account Email]"""
+[Your Name]"""
                 st.code(template, language="text")
 else:
-    st.info("No active subscriptions found matching your query.")
-
-st.write("---")
-
-# --- CONTRACT & CLAUSE AI AUDITOR ---
-st.subheader("Review Terms & Fine Print")
-st.write("Paste contract text or select a demo sample below to audit cancellation windows and auto-renewals.")
-
-SAMPLE_CONTRACTS = {
-    "Custom Text": "",
-    "Sample 1: SaaS Software Agreement (Auto-Renew Risk)": (
-        "This subscription automatically renews for consecutive 12-month periods unless canceled "
-        "at least 60 days prior to the end of the current term. Cancellations submitted within 60 days of renewal "
-        "will incur a 50% early termination penalty fee."
-    ),
-    "Sample 2: Fitness Club Membership (Notice Period)": (
-        "Membership rates increase by 8% annually on January 1st. Members must submit cancellation notices in writing "
-        "in person at the local facility. A 30-day processing period applies during which monthly dues will still be billed."
-    )
-}
-
-selected_sample = st.selectbox("Pre-load Demo Sample (For Panel Testing)", list(SAMPLE_CONTRACTS.keys()))
-
-default_text = SAMPLE_CONTRACTS[selected_sample]
-contract_text = st.text_area("Contract Terms Text", value=default_text, height=150, placeholder="Paste agreement terms here...")
-
-if st.button("Run AI Clause Audit"):
-    clean_input = contract_text.strip()
-    if clean_input:
-        st.info("Auditing text for contractual risks...")
-        try:
-            headers = {}
-            if WORKSPACE_ID:
-                headers["anthropic-workspace-id"] = WORKSPACE_ID
-
-            client = anthropic.Anthropic(
-                api_key=ACTIVE_KEY,
-                default_headers=headers if headers else None
-            )
-            
-            prompt = (
-                "Analyze the following contract text. Structure your response into 3 concise bullet points:\n"
-                "1. Auto-Renewal & Notice Period Requirements\n"
-                "2. Hidden Fees or Cancellation Penalties\n"
-                "3. Overall Risk Rating (Low, Medium, High)\n\n"
-                f"Contract Text:\n{clean_input}"
-            )
-
-            response = client.messages.create(
-                model="claude-3-5-sonnet-20240620",
-                max_tokens=400,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            st.success("Analysis Complete")
-            st.markdown(response.content[0].text)
-            
-        except anthropic.APIError as api_err:
-            st.error(f"API Error {api_err.status_code}: {api_err.message}")
-        except Exception as e:
-            st.error(f"Execution Error: {str(e)}")
-    else:
-        st.warning("Please enter or select contract text before running the audit.")
+    st.info("No subscriptions found.")
