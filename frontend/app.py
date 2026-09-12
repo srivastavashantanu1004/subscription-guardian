@@ -7,7 +7,7 @@ from supabase import create_client, Client
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Subscription Guardian", page_icon="💳", layout="wide")
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (Clean, Human UI) ---
 st.markdown("""
 <style>
     .stApp {
@@ -45,9 +45,11 @@ load_dotenv(dotenv_path="../.env")
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 
-# Read API Key cleanly
 raw_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or ""
 ACTIVE_KEY = str(raw_key).strip().strip('"').strip("'").strip()
+
+raw_workspace = st.secrets.get("ANTHROPIC_WORKSPACE_ID") or os.getenv("ANTHROPIC_WORKSPACE_ID") or ""
+WORKSPACE_ID = str(raw_workspace).strip().strip('"').strip("'").strip()
 
 # Initialize Supabase client
 supabase: Client = None
@@ -147,10 +149,16 @@ if st.button("Review Text"):
     if clean_input:
         st.info("Analyzing document details...")
         try:
-            # Initialize client explicitly with cleared key string
-            client = anthropic.Anthropic(api_key=ACTIVE_KEY)
+            # Pass workspace header dynamically if present
+            headers = {}
+            if WORKSPACE_ID:
+                headers["anthropic-workspace-id"] = WORKSPACE_ID
+
+            client = anthropic.Anthropic(
+                api_key=ACTIVE_KEY,
+                default_headers=headers if headers else None
+            )
             
-            # Simplified payload request
             response = client.messages.create(
                 model="claude-3-5-sonnet-20240620",
                 max_tokens=300,
@@ -166,7 +174,6 @@ if st.button("Review Text"):
             st.write(response.content[0].text)
             
         except anthropic.APIError as api_err:
-            # Displays exact Anthropic error code and raw response message
             st.error(f"API Code {api_err.status_code}: {api_err.message}")
         except Exception as e:
             st.error(f"Execution Error: {str(e)}")
