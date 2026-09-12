@@ -1,4 +1,4 @@
-import os
+﻿import os
 import re
 import imaplib
 import email
@@ -11,7 +11,7 @@ from supabase import create_client, Client
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="Subscription Guardian",
-    page_icon="???",
+    page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -19,12 +19,10 @@ st.set_page_config(
 # --- CLEAN SCOPED DARK GLASSMORPHISM STYLING ---
 st.markdown("""
 <style>
-    /* Background Gradient Layer */
     .stApp {
         background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%) !important;
     }
 
-    /* Target Metric Display Cards */
     div[data-testid="stMetric"] {
         background: rgba(30, 41, 59, 0.7) !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -38,7 +36,6 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
-    /* Action Buttons */
     .stButton > button {
         background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%) !important;
         color: #ffffff !important;
@@ -53,7 +50,6 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* Navigation Tabs */
     .stTabs [data-baseweb="tab-list"] {
         background-color: rgba(15, 23, 42, 0.5) !important;
         border-radius: 12px !important;
@@ -128,10 +124,18 @@ def delete_subscription_from_db(sub_id, index):
             return True
     return False
 
+# Safe Price Parser Helper
+def get_sub_price(sub):
+    val = sub.get("price") if "price" in sub else sub.get("amount", 0.0)
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
 # --- HEADER HERO BANNER ---
 st.markdown("""
 <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.25) 0%, rgba(99, 102, 241, 0.25) 100%); backdrop-filter: blur(12px); padding: 24px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 24px;">
-    <h1 style="margin: 0; font-size: 2.2rem; font-weight: 800;">??? Subscription Guardian</h1>
+    <h1 style="margin: 0; font-size: 2.2rem; font-weight: 800;">🛡️ Subscription Guardian</h1>
     <p style="margin-top: 4px; font-size: 1rem; opacity: 0.85;">Automated E-Receipt Tracking & Contract Clause Auditing</p>
 </div>
 """, unsafe_allow_html=True)
@@ -139,14 +143,14 @@ st.markdown("""
 subscriptions = fetch_subscriptions()
 
 # --- METRIC CARDS ---
-total_monthly = sum(float(sub["price"]) for sub in subscriptions)
+total_monthly = sum(get_sub_price(sub) for sub in subscriptions)
 total_yearly = total_monthly * 12
 
 m1, m2, m3 = st.columns(3)
 with m1:
-    st.metric("Total Monthly Spend", f"?{total_monthly:.2f}")
+    st.metric("Total Monthly Spend", f"₹{total_monthly:.2f}")
 with m2:
-    st.metric("Annual Commitment", f"?{total_yearly:.2f}")
+    st.metric("Annual Commitment", f"₹{total_yearly:.2f}")
 with m3:
     st.metric("Active Subscriptions", len(subscriptions))
 
@@ -154,9 +158,9 @@ st.write("")
 
 # --- TABS ---
 tab_dashboard, tab_add, tab_ai = st.tabs([
-    "?? Expense Dashboard", 
-    "? Add Service", 
-    "?? AI Savings & Clause Audit"
+    "📊 Expense Dashboard", 
+    "➕ Add Service", 
+    "🤖 AI Savings & Clause Audit"
 ])
 
 # --- DASHBOARD TAB ---
@@ -164,31 +168,38 @@ with tab_dashboard:
     if subscriptions:
         col_chart, col_list = st.columns([1.2, 1])
         with col_chart:
-            st.markdown("### ?? Monthly Spend Breakdown")
-            chart_df = pd.DataFrame([
-                {"Service": sub["name"], "Cost (?)": float(sub["price"])}
-                for sub in subscriptions
-            ]).set_index("Service")
-            st.bar_chart(chart_df, y="Cost (?)", color="#a855f7")
+            st.markdown("### 📈 Monthly Spend Breakdown")
+            chart_data = []
+            for sub in subscriptions:
+                s_name = sub.get("name", "Unknown")
+                s_price = get_sub_price(sub)
+                chart_data.append({"Service": s_name, "Cost (₹)": s_price})
+            
+            chart_df = pd.DataFrame(chart_data).set_index("Service")
+            st.bar_chart(chart_df, y="Cost (₹)", color="#a855f7")
             
         with col_list:
-            st.markdown("### ?? Active Subscriptions")
-            search_query = st.text_input("?? Search active items...", placeholder="Type to filter...").strip().lower()
+            st.markdown("### 💳 Active Subscriptions")
+            search_query = st.text_input("🔍 Search active items...", placeholder="Type to filter...").strip().lower()
             
             filtered = [
                 (idx, sub) for idx, sub in enumerate(subscriptions)
-                if search_query in sub["name"].lower() or search_query in sub["plan"].lower()
+                if search_query in str(sub.get("name", "")).lower() or search_query in str(sub.get("plan", "")).lower()
             ]
             
             for idx, sub in filtered:
                 sub_id = sub.get("id")
+                sub_name = sub.get("name", "Unknown")
+                sub_plan = sub.get("plan", "Standard")
+                sub_price = get_sub_price(sub)
+                
                 st.markdown(f"""
                 <div style="background: rgba(30, 41, 59, 0.5); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <strong style="font-size: 1.1rem;">{sub['name']}</strong>
-                        <div style="font-size: 0.85rem; opacity: 0.7;">{sub['plan']}</div>
+                        <strong style="font-size: 1.1rem;">{sub_name}</strong>
+                        <div style="font-size: 0.85rem; opacity: 0.7;">{sub_plan}</div>
                     </div>
-                    <div style="font-size: 1.25rem; font-weight: 800; color: #c084fc;">?{float(sub['price']):.2f}/mo</div>
+                    <div style="font-size: 1.25rem; font-weight: 800; color: #c084fc;">₹{sub_price:.2f}/mo</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -199,18 +210,18 @@ with tab_dashboard:
                 with btn_c2:
                     if st.button("Delete Service", key=f"d_{idx}"):
                         if delete_subscription_from_db(sub_id, idx):
-                            st.success(f"Removed {sub['name']}")
+                            st.success(f"Removed {sub_name}")
                             st.rerun()
                 
                 if st.session_state.get(f"show_e_{idx}", False):
-                    template = f"Subject: Request for Immediate Cancellation - {sub['name']}\n\nPlease cancel my {sub['plan']} plan effective immediately."
+                    template = f"Subject: Request for Immediate Cancellation - {sub_name}\n\nPlease cancel my {sub_plan} plan effective immediately."
                     st.code(template, language="text")
     else:
         st.info("No active subscriptions found. Use the tab above to add items.")
 
 # --- ADD SERVICE TAB ---
 with tab_add:
-    st.markdown("### ? Register New Subscription")
+    st.markdown("### ➕ Register New Subscription")
     with st.form("add_sub_form", clear_on_submit=True):
         col_a, col_b, col_c = st.columns([2, 2, 1])
         with col_a:
@@ -218,7 +229,7 @@ with tab_add:
         with col_b:
             plan = st.text_input("Plan Tier", placeholder="e.g. Premium")
         with col_c:
-            price = st.number_input("Monthly Cost (?)", min_value=0.00, step=10.00, value=0.00)
+            price = st.number_input("Monthly Cost (₹)", min_value=0.00, step=10.00, value=0.00)
         
         submitted = st.form_submit_button("Save Subscription")
         if submitted:
@@ -231,14 +242,14 @@ with tab_add:
 
 # --- AI TAB ---
 with tab_ai:
-    st.markdown("### ?? AI Redundancy Optimizer")
+    st.markdown("### 💡 AI Redundancy Optimizer")
     if st.button("Analyze Savings"):
         if len(subscriptions) < 2:
             st.warning("Add at least 2 subscriptions first.")
         else:
             with st.spinner("Analyzing portfolio..."):
                 try:
-                    sub_summary = "\n".join([f"- {s['name']}: {s['plan']} (?{s['price']}/mo)" for s in subscriptions])
+                    sub_summary = "\n".join([f"- {s.get('name')}: {s.get('plan')} (₹{get_sub_price(s)}/mo)" for s in subscriptions])
                     headers = {}
                     if WORKSPACE_ID:
                         headers["anthropic-workspace-id"] = WORKSPACE_ID
@@ -253,7 +264,7 @@ with tab_ai:
                     st.error(f"API Error: {str(e)}")
     
     st.write("---")
-    st.markdown("### ?? AI Contract Auditor")
+    st.markdown("### 📜 AI Contract Auditor")
     contract_text = st.text_area("Agreement Terms", height=120, placeholder="Paste contract text here...")
     if st.button("Audit Fine Print"):
         if contract_text.strip():
