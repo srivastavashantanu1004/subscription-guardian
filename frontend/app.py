@@ -59,3 +59,40 @@ for sub in subscriptions:
                 f"Confirm receipt of this request.",
                 language="markdown"
             )
+            st.divider()
+
+# --- ADD NEW SUBSCRIPTION FORM ---
+st.subheader("➕ Add New Subscription")
+with st.form("add_sub_form", clear_on_submit=True):
+    name = st.text_input("Service Name", value="Netflix")
+    
+    plan = st.selectbox(
+        "Plan Type",
+        ["Mobile (₹149/mo)", "Basic (₹199/mo)", "Standard (₹499/mo)", "Premium (₹649/mo)"]
+    )
+    
+    prices = {
+        "Mobile (₹149/mo)": 149.00,
+        "Basic (₹199/mo)": 199.00,
+        "Standard (₹499/mo)": 499.00,
+        "Premium (₹649/mo)": 649.00
+    }
+    
+    submitted = st.form_submit_button("Add Subscription")
+    if submitted:
+        if "subscriptions" not in st.session_state:
+            st.session_state.subscriptions = []
+        st.session_state.subscriptions.append({"name": name, "plan": plan, "price": prices[plan]})
+        st.success(f"Added {name} ({plan}) successfully!")
+        st.rerun()
+
+st.divider()
+
+# --- CONTRACT ANALYSIS ---
+st.subheader("🔍 Analyze Terms & Conditions")
+contract_text = st.text_area("Paste contract or terms of service below:")
+if st.button("Detect Hidden Clauses"):
+    if contract_text:
+        st.info("Analyzing contract text with AI...")
+    else:
+        st.warning("Please paste some text to analyze.")
