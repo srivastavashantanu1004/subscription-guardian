@@ -46,50 +46,19 @@ def fetch_subscriptions():
     return st.session_state.get("subscriptions", [])
 
 def add_subscription_to_db(name, plan, price):
-    existing = fetch_subscriptions()
-    
-    # Check table structure dynamically based on existing rows
-    if existing and isinstance(existing[0], dict):
-        sample = existing[0]
-        payload = {}
-        
-        # Determine name column
-        if "service_name" in sample:
-            payload["service_name"] = name
-        elif "title" in sample:
-            payload["title"] = name
-        else:
-            payload["name"] = name
-            
-        # Determine plan column
-        if "plan_name" in sample:
-            payload["plan_name"] = plan
-        elif "tier" in sample:
-            payload["tier"] = plan
-        else:
-            payload["plan"] = plan
-            
-        # Determine price column
-        if "amount" in sample:
-            payload["amount"] = price
-        elif "cost" in sample:
-            payload["cost"] = price
-        else:
-            payload["price"] = price
-    else:
-        # Default fallback structure
-        payload = {"service_name": name, "plan": plan, "price": price}
-
     if supabase:
-        # Try insert with dynamic payload first, fallback to basic schema if needed
-        for p in [payload, {"service_name": name, "plan": plan, "price": price}, {"name": name, "plan": plan, "price": price}]:
-            try:
-                supabase.table("subscriptions").insert(p).execute()
-                return True
-            except Exception:
-                continue
-        st.error("Failed to insert record into Supabase. Please check your table column names.")
-        return False
+        try:
+            # Simple direct insert
+            supabase.table("subscriptions").insert({
+                "name": name,
+                "plan": plan,
+                "price": price
+            }).execute()
+            return True
+        except Exception as e:
+            # Print explicit Supabase error string to identify missing column
+            st.error(f"Supabase Direct Error: {str(e)}")
+            return False
     else:
         if "subscriptions" not in st.session_state:
             st.session_state.subscriptions = []
