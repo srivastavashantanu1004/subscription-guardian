@@ -43,36 +43,21 @@ st.divider()
 st.subheader("➕ Add New Subscription")
 with st.form("add_sub_form", clear_on_submit=True):
     name = st.text_input("Service Name", placeholder="e.g. Netflix, Spotify, Prime")
-    
-    plan_options = {
-        "Select a plan...": None,
-        "Mobile (₹149)": ("Mobile", 149.00),
-        "Basic (₹199)": ("Basic", 199.00),
-        "Standard (₹499)": ("Standard", 499.00),
-        "Premium (₹649)": ("Premium", 649.00),
-        "Custom Plan": ("Custom", 0.00)
-    }
-    
-    selected_option = st.selectbox("Plan Type", list(plan_options.keys()))
-    custom_price = st.number_input("Monthly Price (₹)", min_value=0.00, step=10.00, value=0.00)
+    plan = st.text_input("Plan Name", placeholder="e.g. Mobile, Premium, Duo, Student")
+    price = st.number_input("Monthly Cost (₹)", min_value=0.00, step=10.00, value=0.00)
     
     submitted = st.form_submit_button("Add Subscription")
     if submitted:
         if not name.strip():
             st.error("Please enter a service name.")
-        elif selected_option == "Select a plan...":
-            st.error("Please select a valid plan type.")
+        elif not plan.strip():
+            st.error("Please enter a plan name.")
+        elif price <= 0:
+            st.error("Please enter a valid monthly cost greater than ₹0.")
         else:
-            if selected_option == "Custom Plan":
-                plan_name = "Custom"
-                plan_price = custom_price
-            else:
-                plan_name, default_price = plan_options[selected_option]
-                plan_price = custom_price if custom_price > 0 else default_price
-
-            new_sub = {"name": name, "plan": plan_name, "price": plan_price}
+            new_sub = {"name": name.strip(), "plan": plan.strip(), "price": price}
             st.session_state.subscriptions.append(new_sub)
-            st.success(f"Added {name} ({plan_name}) successfully!")
+            st.success(f"Added {name} ({plan}) - ₹{price:.2f}/mo successfully!")
             st.rerun()
 
 st.divider()
