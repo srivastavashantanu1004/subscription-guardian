@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CLEAN SCOPED DARK GLASSMORPHISM STYLING ---
+# --- SCOPED DARK GLASSMORPHISM STYLING ---
 st.markdown("""
 <style>
     .stApp {
@@ -94,16 +94,26 @@ def fetch_subscriptions():
 
 def add_subscription_to_db(name, plan, price):
     if supabase:
-        try:
-            supabase.table("subscriptions").insert({
-                "name": name,
-                "plan": plan,
-                "price": price
-            }).execute()
-            return True
-        except Exception as e:
-            st.error(f"Database Error: {str(e)}")
-            return False
+        # Detect database schema dynamically
+        payload_options = [
+            {"name": name, "plan": plan, "price": price},
+            {"service_name": name, "plan": plan, "price": price},
+            {"service_name": name, "plan_name": plan, "amount": price},
+            {"name": name, "plan": plan, "amount": price},
+            {"title": name, "plan": plan, "cost": price}
+        ]
+        
+        last_error = None
+        for payload in payload_options:
+            try:
+                supabase.table("subscriptions").insert(payload).execute()
+                return True
+            except Exception as e:
+                last_error = e
+                continue
+                
+        st.error(f"Database Error: {str(last_error)}")
+        return False
     else:
         if "subscriptions" not in st.session_state:
             st.session_state.subscriptions = []
@@ -124,9 +134,15 @@ def delete_subscription_from_db(sub_id, index):
             return True
     return False
 
-# Safe Price Parser Helper
+# Safe Field Parsers
+def get_sub_name(sub):
+    return sub.get("name") or sub.get("service_name") or sub.get("title") or "Unknown Service"
+
+def get_sub_plan(sub):
+    return sub.get("plan") or sub.get("plan_name") or sub.get("tier") or "Standard"
+
 def get_sub_price(sub):
-    val = sub.get("price") if "price" in sub else sub.get("amount", 0.0)
+    val = sub.get("price") if "price" in sub else sub.get("amount") if "amount" in sub else sub.get("cost", 0.0)
     try:
         return float(val)
     except (ValueError, TypeError):
@@ -169,12 +185,10 @@ with tab_dashboard:
         col_chart, col_list = st.columns([1.2, 1])
         with col_chart:
             st.markdown("### 📈 Monthly Spend Breakdown")
-            chart_data = []
-            for sub in subscriptions:
-                s_name = sub.get("name", "Unknown")
-                s_price = get_sub_price(sub)
-                chart_data.append({"Service": s_name, "Cost (₹)": s_price})
-            
+            chart_data = [
+                {"Service": get_sub_name(sub), "Cost (₹)": get_sub_price(sub)}
+                for sub in subscriptions
+            ]
             chart_df = pd.DataFrame(chart_data).set_index("Service")
             st.bar_chart(chart_df, y="Cost (₹)", color="#a855f7")
             
@@ -184,22 +198,22 @@ with tab_dashboard:
             
             filtered = [
                 (idx, sub) for idx, sub in enumerate(subscriptions)
-                if search_query in str(sub.get("name", "")).lower() or search_query in str(sub.get("plan", "")).lower()
+                if search_query in get_sub_name(sub).lower() or search_query in get_sub_plan(sub).lower()
             ]
             
             for idx, sub in filtered:
                 sub_id = sub.get("id")
-                sub_name = sub.get("name", "Unknown")
-                sub_plan = sub.get("plan", "Standard")
-                sub_price = get_sub_price(sub)
+                s_name = get_sub_name(sub)
+                s_plan = get_sub_plan(sub)
+                s_price = get_sub_price(sub)
                 
                 st.markdown(f"""
                 <div style="background: rgba(30, 41, 59, 0.5); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <strong style="font-size: 1.1rem;">{sub_name}</strong>
-                        <div style="font-size: 0.85rem; opacity: 0.7;">{sub_plan}</div>
+                        <strong style="font-size: 1.1rem;">{s_name}</strong>
+                        <div style="font-size: 0.85rem; opacity: 0.7;">{s_plan}</div>
                     </div>
-                    <div style="font-size: 1.25rem; font-weight: 800; color: #c084fc;">₹{sub_price:.2f}/mo</div>
+                    <div style="font-size: 1.25rem; font-weight: 800; color: #c084fc;">₹{s_price:.2f}/mo</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -210,11 +224,11 @@ with tab_dashboard:
                 with btn_c2:
                     if st.button("Delete Service", key=f"d_{idx}"):
                         if delete_subscription_from_db(sub_id, idx):
-                            st.success(f"Removed {sub_name}")
+                            st.success(f"Removed {s_name}")
                             st.rerun()
                 
                 if st.session_state.get(f"show_e_{idx}", False):
-                    template = f"Subject: Request for Immediate Cancellation - {sub_name}\n\nPlease cancel my {sub_plan} plan effective immediately."
+                    template = f"Subject: Request for Immediate Cancellation - {s_name}\n\nPlease cancel my {s_plan} plan effective immediately."
                     st.code(template, language="text")
     else:
         st.info("No active subscriptions found. Use the tab above to add items.")
@@ -249,7 +263,7 @@ with tab_ai:
         else:
             with st.spinner("Analyzing portfolio..."):
                 try:
-                    sub_summary = "\n".join([f"- {s.get('name')}: {s.get('plan')} (₹{get_sub_price(s)}/mo)" for s in subscriptions])
+                    sub_summary = "\n".join([f"- {get_sub_name(s)}: {get_sub_plan(s)} (₹{get_sub_price(s)}/mo)" for s in subscriptions])
                     headers = {}
                     if WORKSPACE_ID:
                         headers["anthropic-workspace-id"] = WORKSPACE_ID
