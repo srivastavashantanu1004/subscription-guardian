@@ -152,28 +152,17 @@ def fetch_subscriptions():
 
 def add_subscription_to_db(name, plan, price):
     if supabase:
-        # Check actual table schema to prevent PGRST204 errors
-        existing = fetch_subscriptions()
-        if existing and isinstance(existing[0], dict):
-            sample = existing[0]
-            name_key = "service_name" if "service_name" in sample else "name"
-            plan_key = "plan" if "plan" in sample else "tier"
-            price_key = "price" if "price" in sample else "amount" if "amount" in sample else "cost"
-            payload = {name_key: name, plan_key: plan, price_key: price}
-        else:
-            payload = {"service_name": name, "plan": plan, "price": price}
-
         try:
-            supabase.table("subscriptions").insert(payload).execute()
+            # Primary schema uses service_name
+            supabase.table("subscriptions").insert({
+                "service_name": name,
+                "plan": plan,
+                "price": price
+            }).execute()
             return True
-        except Exception:
-            try:
-                # Fallback schema try
-                supabase.table("subscriptions").insert({"name": name, "plan": plan, "price": price}).execute()
-                return True
-            except Exception as e:
-                st.error(f"❌ Database Insert Error: {str(e)}")
-                return False
+        except Exception as e:
+            st.error(f"❌ Database Insert Error: {str(e)}")
+            return False
     else:
         if "subscriptions" not in st.session_state:
             st.session_state.subscriptions = []
