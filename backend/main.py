@@ -2,6 +2,7 @@ import os
 import re
 import imaplib
 import email
+import base64
 import streamlit as st
 import anthropic
 import pandas as pd
@@ -16,107 +17,133 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- MODERNIZED visual styling (FORCED LIGHT MODE + SLEEK CARDS) ---
-st.markdown("""
-<style>
-    /* Hide default Streamlit overhead UI */
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* Global Canvas Styling */
+# --- BACKGROUND IMAGE BASE64 ENCODER ---
+def get_base64_image(image_path):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    return ""
+
+bg_image_path = os.path.join(os.path.dirname(__file__), "background.jpg")
+bg_base64 = get_base64_image(bg_image_path)
+
+# Build dynamic background CSS if file exists, else fallback to sleek gradient background
+bg_css = f"""
+    .stApp {{
+        background: linear-gradient(rgba(248, 250, 252, 0.85), rgba(248, 250, 252, 0.85)), 
+                    url("data:image/jpg;base64,{bg_base64}") no-repeat center center fixed !important;
+        background-size: cover !important;
+        backdrop-filter: blur(8px) !important;
+        -webkit-backdrop-filter: blur(8px) !important;
+    }}
+""" if bg_base64 else """
     .stApp {
-        background: #f8fafc !important;
-        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+        background: linear-gradient(135deg, #e0e7ff 0%, #fae8ff 50%, #f3e8ff 100%) !important;
     }
-    
-    /* Typography Overrides */
-    h1, h2, h3, h4, h5, h6, p, label, span, div {
+"""
+
+# --- HIGH-CONTRAST VIBRANT GLASSMORPHISM CSS ---
+st.markdown(f"""
+<style>
+    #MainMenu {{visibility: hidden;}}
+    header {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+
+    {bg_css}
+
+    /* Global Text Visibility */
+    h1, h2, h3, h4, h5, h6, p, label, span, div {{
         color: #0f172a !important;
-    }
-    
-    /* Glassmorphism Metric Cards */
-    [data-testid="stMetricValue"] {
-        font-size: 2.2rem !important;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+    }}
+
+    /* Glassmorphism Cards for Metrics */
+    [data-testid="stMetricValue"] {{
+        font-size: 2.3rem !important;
         font-weight: 800 !important;
         color: #4f46e5 !important;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.95rem !important;
-        font-weight: 600 !important;
-        color: #64748b !important;
+    }}
+    [data-testid="stMetricLabel"] {{
+        font-size: 0.9rem !important;
+        font-weight: 700 !important;
+        color: #475569 !important;
         text-transform: uppercase !important;
         letter-spacing: 0.05em !important;
-    }
-    div[data-testid="stMetric"] {
-        background: #ffffff !important;
-        padding: 18px 24px !important;
-        border-radius: 16px !important;
-        box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05) !important;
-        border: 1px solid #e2e8f0 !important;
-    }
+    }}
+    div[data-testid="stMetric"] {{
+        background: rgba(255, 255, 255, 0.85) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        padding: 20px 24px !important;
+        border-radius: 18px !important;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.6) !important;
+    }}
 
-    /* Input Fields Styling */
-    .stTextInput input, .stNumberInput input, .stTextArea textarea, div[data-baseweb="select"] {
-        border-radius: 10px !important;
+    /* Input & Select Box Styling */
+    .stTextInput input, .stNumberInput input, .stTextArea textarea, div[data-baseweb="select"] {{
+        border-radius: 12px !important;
         border: 1px solid #cbd5e1 !important;
-        background-color: #ffffff !important;
+        background-color: rgba(255, 255, 255, 0.9) !important;
         color: #0f172a !important;
         padding: 10px 14px !important;
-    }
-    .stTextInput input:focus, .stTextArea textarea:focus {
+    }}
+    .stTextInput input:focus, .stTextArea textarea:focus {{
         border-color: #6366f1 !important;
-        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
-    }
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2) !important;
+    }}
 
-    /* Buttons Styling */
-    .stButton>button {
-        border-radius: 10px !important;
-        font-weight: 600 !important;
+    /* Vibrant Purple/Indigo Action Buttons */
+    .stButton>button {{
+        border-radius: 12px !important;
+        font-weight: 700 !important;
         border: none !important;
-        background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%) !important;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
         color: #ffffff !important;
-        padding: 0.6rem 1.4rem !important;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25) !important;
+        padding: 0.65rem 1.4rem !important;
+        box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35) !important;
         transition: all 0.2s ease-in-out !important;
-    }
-    .stButton>button:hover {
-        transform: translateY(-1px) !important;
-        box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35) !important;
-    }
-    
-    /* Styled Card Containers */
-    .custom-card {
-        background: #ffffff;
-        padding: 20px 24px;
-        border-radius: 14px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+    }}
+    .stButton>button:hover {{
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45) !important;
+    }}
+
+    /* Glass Cards */
+    .glass-card {{
+        background: rgba(255, 255, 255, 0.88);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        padding: 22px 26px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.7);
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
         margin-bottom: 16px;
-    }
-    
-    /* Tab Headers Customization */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: #e2e8f0;
-        padding: 6px;
-        border-radius: 12px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
-        padding: 8px 16px;
-        font-weight: 600;
+    }}
+
+    /* Modern Styled Tabs */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 10px;
+        background: rgba(241, 245, 249, 0.8);
+        padding: 8px;
+        border-radius: 14px;
+        backdrop-filter: blur(10px);
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-weight: 700;
         color: #475569 !important;
-    }
-    .stTabs [aria-selected="true"] {
+    }}
+    .stTabs [aria-selected="true"] {{
         background-color: #ffffff !important;
-        color: #4f46e5 !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
-    }
+        color: #6366f1 !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- ENVIRONMENT & SECRETS ---
+# --- LOAD ENVIRONMENT & SECRETS ---
 load_dotenv(dotenv_path="../.env")
 
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
@@ -128,6 +155,7 @@ ACTIVE_KEY = str(raw_key).strip().strip('"').strip("'").strip()
 raw_workspace = st.secrets.get("ANTHROPIC_WORKSPACE_ID") or os.getenv("ANTHROPIC_WORKSPACE_ID") or ""
 WORKSPACE_ID = str(raw_workspace).strip().strip('"').strip("'").strip()
 
+# Initialize Supabase client
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
@@ -135,7 +163,7 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception:
         pass
 
-# --- DATABASE LOGIC ---
+# --- DATABASE OPERATIONS ---
 def fetch_subscriptions():
     if supabase:
         try:
@@ -177,7 +205,7 @@ def delete_subscription_from_db(sub_id, index):
             return True
     return False
 
-# --- EMAIL PARSER LOGIC ---
+# --- EMAIL PARSER ---
 def parse_receipt_with_ai(email_body):
     try:
         headers = {}
@@ -186,9 +214,9 @@ def parse_receipt_with_ai(email_body):
 
         client = anthropic.Anthropic(api_key=ACTIVE_KEY, default_headers=headers if headers else None)
         prompt = (
-            "Extract the subscription service name and monthly price from this text.\n"
-            "Return ONLY JSON: {\"name\": \"string\", \"price\": float}\n"
-            f"Text:\n{email_body[:1500]}"
+            "Extract the subscription service name and monthly price from this receipt text.\n"
+            "Return ONLY a JSON object: {\"name\": \"string\", \"price\": float}\n"
+            f"Receipt Text:\n{email_body[:1500]}"
         )
         response = client.messages.create(
             model="claude-3-5-sonnet-20240620",
@@ -232,57 +260,57 @@ def scan_inbox_for_receipts(email_address, app_password, imap_server="imap.gmail
                             scanned_items.append(parsed)
         mail.logout()
     except Exception as e:
-        st.error(f"Email Connection Error: {str(e)}")
+        st.error(f"Email Error: {str(e)}")
     return scanned_items
 
-# --- HEADER HERO BANNER ---
+# --- HEADER BANNER ---
 st.markdown("""
-<div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 32px; border-radius: 20px; margin-bottom: 28px; box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.3);">
-    <h1 style="color: #ffffff !important; margin: 0; font-size: 2.4rem; font-weight: 800; tracking: -0.02em;">🛡️ Subscription Guardian</h1>
-    <p style="color: #cbd5e1 !important; margin-top: 8px; font-size: 1.05rem;">Smart Expense Management, E-Receipt Scanning, and AI Contract Analysis</p>
+<div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 32px; border-radius: 22px; margin-bottom: 24px; box-shadow: 0 12px 30px -5px rgba(79, 70, 229, 0.4);">
+    <h1 style="color: #ffffff !important; margin: 0; font-size: 2.5rem; font-weight: 800; letter-spacing: -0.02em;">🛡️ Subscription Guardian</h1>
+    <p style="color: #e0e7ff !important; margin-top: 6px; font-size: 1.1rem; font-weight: 500;">Smart Expense Auditing, Multi-Inbox Receipt Parser & AI Contract Intelligence</p>
 </div>
 """, unsafe_allow_html=True)
 
 subscriptions = fetch_subscriptions()
 
-# --- TOP METRICS DASHBOARD ---
+# --- METRIC CARDS ---
 total_monthly = sum(float(sub["price"]) for sub in subscriptions)
 total_yearly = total_monthly * 12
 
 m1, m2, m3 = st.columns(3)
 with m1:
-    st.metric("Monthly Cost", f"₹{total_monthly:.2f}")
+    st.metric("Total Monthly Spend", f"₹{total_monthly:.2f}")
 with m2:
     st.metric("Annual Spend", f"₹{total_yearly:.2f}")
 with m3:
-    st.metric("Active Services", len(subscriptions))
+    st.metric("Tracked Services", len(subscriptions))
 
 st.write("")
 
-# --- TABBED MAIN NAVIGATION ---
+# --- TABS ---
 tab_dashboard, tab_add, tab_scan, tab_ai = st.tabs([
     "📊 Expense Dashboard", 
     "➕ Add Service", 
     "📬 Inbox Auto-Scan", 
-    "🤖 AI Savings & Terms Audit"
+    "🤖 AI Savings & Clause Audit"
 ])
 
-# --- TAB 1: DASHBOARD ---
+# --- DASHBOARD TAB ---
 with tab_dashboard:
     if subscriptions:
         col_chart, col_list = st.columns([1.2, 1])
         
         with col_chart:
-            st.markdown("### 📈 Expense Breakdown")
+            st.markdown("### 📈 Monthly Expense Breakdown")
             chart_df = pd.DataFrame([
                 {"Service": sub["name"], "Cost (₹)": float(sub["price"])}
                 for sub in subscriptions
             ]).set_index("Service")
-            st.bar_chart(chart_df, y="Cost (₹)", color="#4f46e5")
+            st.bar_chart(chart_df, y="Cost (₹)", color="#6366f1")
             
         with col_list:
             st.markdown("### 💳 Active Accounts")
-            search_query = st.text_input("🔍 Search list...", placeholder="Type service name...").strip().lower()
+            search_query = st.text_input("🔍 Filter list...", placeholder="Type to filter...").strip().lower()
             
             filtered = [
                 (idx, sub) for idx, sub in enumerate(subscriptions)
@@ -293,13 +321,13 @@ with tab_dashboard:
                 sub_id = sub.get("id")
                 with st.container():
                     st.markdown(f"""
-                    <div class="custom-card">
+                    <div class="glass-card">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div>
-                                <strong style="font-size: 1.1rem; color: #0f172a;">{sub['name']}</strong>
-                                <div style="color: #64748b; font-size: 0.88rem;">{sub['plan']}</div>
+                                <strong style="font-size: 1.15rem; color: #0f172a;">{sub['name']}</strong>
+                                <div style="color: #64748b; font-size: 0.9rem; margin-top: 2px;">{sub['plan']}</div>
                             </div>
-                            <div style="font-size: 1.25rem; font-weight: 700; color: #4f46e5;">₹{float(sub['price']):.2f}/mo</div>
+                            <div style="font-size: 1.3rem; font-weight: 800; color: #6366f1;">₹{float(sub['price']):.2f}/mo</div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -325,11 +353,11 @@ Thank you,
 [Your Name]"""
                         st.code(template, language="text")
     else:
-        st.info("No subscriptions added yet. Use the 'Add Service' or 'Inbox Auto-Scan' tab to get started.")
+        st.info("No active subscriptions logged. Use the tabs above to add or import your subscriptions.")
 
-# --- TAB 2: MANUAL ENTRY ---
+# --- MANUAL ENTRY TAB ---
 with tab_add:
-    st.markdown("### ➕ Register New Subscription")
+    st.markdown("### ➕ Add Subscription Entry")
     with st.form("add_sub_form", clear_on_submit=True):
         col_a, col_b, col_c = st.columns([2, 2, 1])
         with col_a:
@@ -346,12 +374,12 @@ with tab_add:
                     st.success(f"Added {name} successfully!")
                     st.rerun()
             else:
-                st.error("Please enter valid details for all fields.")
+                st.error("Please complete all input fields.")
 
-# --- TAB 3: INBOX SCANNER ---
+# --- INBOX SCANNER TAB ---
 with tab_scan:
-    st.markdown("### 📬 E-Receipt & Invoice Inbox Auto-Detector")
-    st.write("Scan your email inbox for automatic receipt ingestion and payment tracking.")
+    st.markdown("### 📬 E-Receipt Inbox Auto-Scanner")
+    st.write("Automatically identify receipts, invoices, and payment confirmations from your email provider.")
     
     e_col1, e_col2, e_col3 = st.columns([2, 2, 1])
     with e_col1:
@@ -359,30 +387,30 @@ with tab_scan:
     with e_col2:
         user_pass = st.text_input("App Password", type="password", placeholder="xxxx xxxx xxxx xxxx")
     with e_col3:
-        imap_host = st.selectbox("IMAP Provider", ["imap.gmail.com", "outlook.office365.com", "imap.mail.yahoo.com"])
+        imap_host = st.selectbox("Provider", ["imap.gmail.com", "outlook.office365.com", "imap.mail.yahoo.com"])
     
-    if st.button("Run Inbox Scan"):
+    if st.button("Scan Inbox Now"):
         if user_email and user_pass:
-            with st.spinner("Connecting and auditing email receipts..."):
+            with st.spinner("Connecting and scanning email inbox..."):
                 found_items = scan_inbox_for_receipts(user_email, user_pass, imap_host)
                 if found_items:
                     added_count = 0
                     for item in found_items:
-                        if add_subscription_to_db(item["name"], "Auto-Detected Email Receipt", float(item["price"])):
+                        if add_subscription_to_db(item["name"], "Auto-Detected Receipt", float(item["price"])):
                             added_count += 1
-                    st.success(f"Imported {added_count} subscriptions directly from your inbox!")
+                    st.success(f"Added {added_count} subscriptions from your email!")
                     st.rerun()
                 else:
-                    st.info("No recent subscription receipts found.")
+                    st.info("No matching subscription receipts found.")
         else:
-            st.warning("Please provide email credentials.")
+            st.warning("Please enter your email credentials.")
 
-# --- TAB 4: AI ADVISOR & CLAUSE AUDITOR ---
+# --- AI ADVISOR TAB ---
 with tab_ai:
     st.markdown("### 💡 AI Redundancy Optimizer")
-    st.write("Analyze your active subscriptions for duplicate categories and savings opportunities.")
+    st.write("Scan your active portfolio for overlapping subscriptions and potential savings.")
     
-    if st.button("Run Redundancy Audit"):
+    if st.button("Generate Optimization Advice"):
         if len(subscriptions) < 2:
             st.warning("Add at least 2 subscriptions to execute redundancy checks.")
         else:
@@ -395,7 +423,7 @@ with tab_ai:
                     client = anthropic.Anthropic(api_key=ACTIVE_KEY, default_headers=headers if headers else None)
                     
                     prompt = (
-                        "Analyze this list of subscriptions:\n"
+                        "Analyze this subscription list:\n"
                         f"{sub_summary}\n\n"
                         "1. Identify redundant/overlapping services.\n"
                         "2. Provide clear advice on what to cancel.\n"
@@ -414,7 +442,7 @@ with tab_ai:
                     
     st.write("---")
     
-    st.markdown("### 📜 Contract & Fine Print Auditor")
+    st.markdown("### 📜 AI Contract & Fine Print Auditor")
     SAMPLE_CONTRACTS = {
         "Custom Entry": "",
         "Sample 1: SaaS Software Agreement (Auto-Renew Penalty)": (
@@ -427,13 +455,13 @@ with tab_ai:
         )
     }
     
-    selected_sample = st.selectbox("Pre-load Sample Contract", list(SAMPLE_CONTRACTS.keys()))
-    contract_text = st.text_area("Agreement Text", value=SAMPLE_CONTRACTS[selected_sample], height=140)
+    selected_sample = st.selectbox("Pre-load Demo Sample", list(SAMPLE_CONTRACTS.keys()))
+    contract_text = st.text_area("Agreement Terms", value=SAMPLE_CONTRACTS[selected_sample], height=140)
     
-    if st.button("Audit Clause Fine Print"):
+    if st.button("Audit Fine Print"):
         clean_input = contract_text.strip()
         if clean_input:
-            with st.spinner("Analyzing terms..."):
+            with st.spinner("Auditing contract terms..."):
                 try:
                     headers = {}
                     if WORKSPACE_ID:
@@ -457,4 +485,4 @@ with tab_ai:
                 except Exception as e:
                     st.error(f"Audit failed: {str(e)}")
         else:
-            st.warning("Please provide terms text.")
+            st.warning("Please provide agreement terms text.")
