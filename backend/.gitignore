@@ -1,0 +1,15 @@
+# Environment variables - never upload!
+.env
+
+# Python auto-generated files
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+env/
+
+# Database files
+*.db
+*.sqlite
