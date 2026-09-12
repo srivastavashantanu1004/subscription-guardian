@@ -12,7 +12,10 @@ load_dotenv(dotenv_path="../.env")
 
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
-ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+
+# Fetch API key and strip whitespace/quotes if present
+raw_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or ""
+ANTHROPIC_API_KEY = raw_key.strip().strip('"').strip("'")
 
 # Initialize Supabase client if keys exist
 supabase: Client = None
@@ -74,6 +77,14 @@ st.divider()
 
 # --- AI CONTRACT ANALYSIS ---
 st.subheader("🔍 Analyze Terms & Conditions")
+
+# Key diagnostics check
+if ANTHROPIC_API_KEY:
+    masked_key = ANTHROPIC_API_KEY[:8] + "..." + ANTHROPIC_API_KEY[-4:]
+    st.caption(f"🔑 Active Key Loaded: `{masked_key}`")
+else:
+    st.warning("⚠️ No API key detected in Streamlit Secrets.")
+
 contract_text = st.text_area("Paste contract or terms of service below:", height=200)
 
 if st.button("Detect Hidden Clauses"):
