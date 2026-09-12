@@ -1,13 +1,14 @@
 import os
 import streamlit as st
 import anthropic
+import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Subscription Guardian", page_icon="💳", layout="wide")
 
-# --- CUSTOM CSS (Clean UI + Forced Dark Text & Hidden Headers) ---
+# --- CUSTOM CSS (Polished Presentation & Light Theme Enforcement) ---
 st.markdown("""
 <style>
     /* Hide top header bar, menu, and Streamlit branding */
@@ -38,15 +39,15 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Form Inputs Styling */
-    .stTextInput input, .stNumberInput input, .stTextArea textarea {
+    /* Form Inputs & Selectboxes */
+    .stTextInput input, .stNumberInput input, .stTextArea textarea, div[data-baseweb="select"] {
         border-radius: 8px !important;
         border: 1px solid #cbd5e1 !important;
         background-color: #ffffff !important;
         color: #0f172a !important;
     }
     
-    /* Button Styling */
+    /* Buttons */
     .stButton>button {
         border-radius: 8px !important;
         font-weight: 600 !important;
@@ -82,7 +83,7 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception:
         pass
 
-# Helper functions for database operations
+# --- DATABASE OPERATIONS (CRUD) ---
 def fetch_subscriptions():
     if supabase:
         try:
@@ -110,33 +111,61 @@ def add_subscription_to_db(name, plan, price):
         st.session_state.subscriptions.append({"name": name, "plan": plan, "price": price})
         return True
 
-# --- MAIN HEADER ---
-st.title("Subscription Guardian")
-st.write("Track monthly expenses and review contract terms before renewing.")
+def delete_subscription_from_db(sub_id, index):
+    if supabase and sub_id:
+        try:
+            supabase.table("subscriptions").delete().eq("id", sub_id).execute()
+            return True
+        except Exception as e:
+            st.error(f"Failed to delete record: {str(e)}")
+            return False
+    else:
+        if "subscriptions" in st.session_state and index < len(st.session_state.subscriptions):
+            st.session_state.subscriptions.pop(index)
+            return True
+    return False
 
-# Load active list from database
+# --- HEADER SECTION ---
+st.title("Subscription Guardian")
+st.write("Track recurring commitments, visualize annual projections, and analyze contract terms with AI.")
+
 subscriptions = fetch_subscriptions()
 
 st.write("")
 
-# --- OVERVIEW METRICS ---
-total_spend = sum(float(sub["price"]) for sub in subscriptions)
-m1, m2 = st.columns(2)
+# --- ANALYTICS & METRICS DASHBOARD ---
+total_monthly = sum(float(sub["price"]) for sub in subscriptions)
+total_yearly = total_monthly * 12
+
+m1, m2, m3 = st.columns(3)
 with m1:
-    st.metric("Total Monthly Cost", f"₹{total_spend:.2f}")
+    st.metric("Total Monthly Cost", f"₹{total_monthly:.2f}")
 with m2:
+    st.metric("Annual Commitment", f"₹{total_yearly:.2f}")
+with m3:
     st.metric("Active Services", len(subscriptions))
 
 st.write("---")
 
-# --- ADD SUBSCRIPTION ---
-st.subheader("Add a Subscription")
+# --- VISUAL BREAKDOWN CHART ---
+if subscriptions:
+    st.subheader("Spending Distribution")
+    chart_df = pd.DataFrame([
+        {"Service": sub["name"], "Monthly Cost (₹)": float(sub["price"])}
+        for sub in subscriptions
+    ]).set_index("Service")
+    
+    st.bar_chart(chart_df, y="Monthly Cost (₹)")
+    st.write("---")
+
+# --- ADD NEW SUBSCRIPTION FORM ---
+st.subheader("Add Subscription")
 with st.form("add_sub_form", clear_on_submit=True):
     col_a, col_b, col_c = st.columns([2, 2, 1])
     with col_a:
-        name = st.text_input("Service Name", placeholder="e.g. Netflix, Gym, Cloud Storage")
+        name = st.text_input("Service Name", placeholder="e.g. Netflix, Gym, AWS")
     with col_b:
-        plan = st.text_input("Plan Details", placeholder="e.g. Standard, Individual, Annual")
+        plan = st.text_input("Plan Details", placeholder="e.g. Premium Tier, Annual")
     with col_c:
         price = st.number_input("Cost (₹/mo)", min_value=0.00, step=10.00, value=0.00)
     
@@ -150,54 +179,82 @@ with st.form("add_sub_form", clear_on_submit=True):
             st.error("Please enter a valid monthly price.")
         else:
             if add_subscription_to_db(name.strip(), plan.strip(), price):
-                st.success(f"Added {name} to your list.")
+                st.success(f"Added {name} successfully.")
                 st.rerun()
 
 st.write("---")
 
-# --- SUBSCRIPTION LIST & CANCELLATION EMAIL GENERATOR ---
-st.subheader("Your Active Plans")
+# --- ACTIVE SUBSCRIPTIONS & MANAGEMENT ---
+st.subheader("Active Subscriptions")
 
-if subscriptions:
-    for idx, sub in enumerate(subscriptions):
+# Search / Filter Bar
+search_query = st.text_input("🔍 Search subscriptions", placeholder="Filter by service name...").strip().lower()
+
+filtered_subs = [
+    (idx, sub) for idx, sub in enumerate(subscriptions)
+    if search_query in sub["name"].lower() or search_query in sub["plan"].lower()
+]
+
+if filtered_subs:
+    for idx, sub in filtered_subs:
+        sub_id = sub.get("id")
         with st.container():
-            c_info, c_action = st.columns([3, 1])
+            c_info, c_action1, c_action2 = st.columns([3, 1, 1])
             with c_info:
                 st.write(f"**{sub['name']}** — {sub['plan']} | **₹{float(sub['price']):.2f}** / month")
-            with c_action:
-                if st.button("Cancellation Email", key=f"cancel_{idx}"):
+            with c_action1:
+                if st.button("Cancel Draft", key=f"cancel_{idx}"):
                     st.session_state[f"show_email_{idx}"] = not st.session_state.get(f"show_email_{idx}", False)
+            with c_action2:
+                if st.button("Delete", key=f"del_{idx}"):
+                    if delete_subscription_from_db(sub_id, idx):
+                        st.success(f"Removed {sub['name']}")
+                        st.rerun()
             
             if st.session_state.get(f"show_email_{idx}", False):
                 template = f"""Subject: Request for Immediate Cancellation - {sub['name']}
 
 Hello Support Team,
 
-I am writing to formally request the cancellation of my {sub['name']} subscription ({sub['plan']} plan) effective immediately. 
+I am writing to formally request the cancellation of my {sub['name']} subscription ({sub['plan']} plan) effective immediately.
 
-Please ensure that auto-renewal is turned off for my account and confirm that no further charges will be billed to my payment method. 
-
-Kindly reply with written confirmation of this cancellation at your earliest convenience.
+Please disable auto-renewal for my account and confirm in writing that no further charges will occur.
 
 Thank you,
 [Your Name]
-[Your Account Email / Phone Number]"""
+[Your Account Email]"""
                 st.code(template, language="text")
 else:
-    st.info("No subscriptions added yet. Use the form above to get started.")
+    st.info("No active subscriptions found matching your query.")
 
 st.write("---")
 
-# --- CONTRACT & CLAUSE REVIEW ---
+# --- CONTRACT & CLAUSE AI AUDITOR ---
 st.subheader("Review Terms & Fine Print")
-st.write("Paste terms, renewal details, or cancellation policies below to check for unexpected charges or limitations.")
+st.write("Paste contract text or select a demo sample below to audit cancellation windows and auto-renewals.")
 
-contract_text = st.text_area("Contract or Terms Text", height=180, placeholder="Paste agreement text here...")
+SAMPLE_CONTRACTS = {
+    "Custom Text": "",
+    "Sample 1: SaaS Software Agreement (Auto-Renew Risk)": (
+        "This subscription automatically renews for consecutive 12-month periods unless canceled "
+        "at least 60 days prior to the end of the current term. Cancellations submitted within 60 days of renewal "
+        "will incur a 50% early termination penalty fee."
+    ),
+    "Sample 2: Fitness Club Membership (Notice Period)": (
+        "Membership rates increase by 8% annually on January 1st. Members must submit cancellation notices in writing "
+        "in person at the local facility. A 30-day processing period applies during which monthly dues will still be billed."
+    )
+}
 
-if st.button("Review Text"):
+selected_sample = st.selectbox("Pre-load Demo Sample (For Panel Testing)", list(SAMPLE_CONTRACTS.keys()))
+
+default_text = SAMPLE_CONTRACTS[selected_sample]
+contract_text = st.text_area("Contract Terms Text", value=default_text, height=150, placeholder="Paste agreement terms here...")
+
+if st.button("Run AI Clause Audit"):
     clean_input = contract_text.strip()
     if clean_input:
-        st.info("Analyzing document details...")
+        st.info("Auditing text for contractual risks...")
         try:
             headers = {}
             if WORKSPACE_ID:
@@ -208,23 +265,26 @@ if st.button("Review Text"):
                 default_headers=headers if headers else None
             )
             
+            prompt = (
+                "Analyze the following contract text. Structure your response into 3 concise bullet points:\n"
+                "1. Auto-Renewal & Notice Period Requirements\n"
+                "2. Hidden Fees or Cancellation Penalties\n"
+                "3. Overall Risk Rating (Low, Medium, High)\n\n"
+                f"Contract Text:\n{clean_input}"
+            )
+
             response = client.messages.create(
                 model="claude-3-5-sonnet-20240620",
-                max_tokens=300,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"Review this text for subscription charges or fine print:\n\n{clean_input}"
-                    }
-                ]
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt}]
             )
             
-            st.write("### Review Results")
-            st.write(response.content[0].text)
+            st.success("Analysis Complete")
+            st.markdown(response.content[0].text)
             
         except anthropic.APIError as api_err:
-            st.error(f"API Code {api_err.status_code}: {api_err.message}")
+            st.error(f"API Error {api_err.status_code}: {api_err.message}")
         except Exception as e:
             st.error(f"Execution Error: {str(e)}")
     else:
-        st.warning("Please paste contract text before reviewing.")
+        st.warning("Please enter or select contract text before running the audit.")
