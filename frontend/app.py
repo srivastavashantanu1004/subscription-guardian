@@ -1,65 +1,42 @@
-
-import streamlit as st
 import os
+import streamlit as st
+import anthropic
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-st.set_page_config(page_title="Subscription Guardian", layout="wide")
+# --- PAGE CONFIGURATION ---
+st.set_page_config(page_title="Subscription Guardian", page_icon="🛡️", layout="wide")
 
-# Load .env from parent folder
+# --- LOAD ENVIRONMENT & SECRETS ---
 load_dotenv(dotenv_path="../.env")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
+ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+
+# Initialize Supabase client if keys exist
+supabase: Client = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception as e:
+        st.error(f"Failed to connect to Supabase: {e}")
+
+# --- HEADER SECTION ---
 st.title("🛡️ Subscription Guardian")
 st.caption("AI Subscription Manager & Hidden Clause Detector")
 
-# Fetch data from Supabase
-if SUPABASE_URL and SUPABASE_KEY and "your-project-id" not in SUPABASE_URL:
-    try:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        response = supabase.table("subscriptions").select("*").execute()
-        subscriptions = response.data or []
-    except Exception as e:
-        st.error(f"Error connecting to Supabase: {e}")
-        subscriptions = []
-else:
-    subscriptions = [
-        {
-            "id": "1",
-            "service_name": "Adobe Creative Cloud",
-            "amount": 54.99,
-            "billing_cycle": "Monthly",
-            "renewal_date": "2026-10-15",
-            "hidden_clauses": "Auto-renews annually. Requires 30-day notice prior to cancel without fee."
-        }
-    ]
+# Initialize session state for temporary storing if DB isn't loaded
+if "subscriptions" not in st.session_state:
+    st.session_state.subscriptions = []
 
+# --- TOP METRICS ---
+total_spend = sum(sub["price"] for sub in st.session_state.subscriptions)
 col1, col2 = st.columns(2)
-total_spend = sum(sub.get("amount", 0) for sub in subscriptions)
-col1.metric("Total Monthly Spend", f"${total_spend:.2f}")
-col2.metric("Active Subscriptions", len(subscriptions))
+col1.metric("Total Monthly Spend", f"₹{total_spend:.2f}")
+col2.metric("Active Subscriptions", len(st.session_state.subscriptions))
 
 st.divider()
-st.subheader("Your Subscriptions")
-
-for sub in subscriptions:
-    with st.expander(f"📌 {sub.get('service_name', 'Unknown')} — ${sub.get('amount', 0)}/mo"):
-        st.write(f"**Billing Cycle:** {sub.get('billing_cycle', 'N/A')}")
-        st.write(f"**Renewal Date:** {sub.get('renewal_date', 'N/A')}")
-        
-        if sub.get("hidden_clauses"):
-            st.warning(f"⚠️ **Hidden Term Detected:** {sub['hidden_clauses']}")
-            
-        if st.button(f"Generate Cancellation Email for {sub.get('service_name')}", key=str(sub.get("id"))):
-            st.code(
-                f"Subject: Immediate Cancellation Request - {sub.get('service_name')}\n\n"
-                f"To Whom It May Concern,\n\nPlease process the immediate cancellation of my "
-                f"{sub.get('service_name')} subscription prior to {sub.get('renewal_date')}. "
-                f"Confirm receipt of this request.",
-                language="markdown"
-            )
-            st.divider()
 
 # --- ADD NEW SUBSCRIPTION FORM ---
 st.subheader("➕ Add New Subscription")
@@ -80,19 +57,48 @@ with st.form("add_sub_form", clear_on_submit=True):
     
     submitted = st.form_submit_button("Add Subscription")
     if submitted:
-        if "subscriptions" not in st.session_state:
-            st.session_state.subscriptions = []
-        st.session_state.subscriptions.append({"name": name, "plan": plan, "price": prices[plan]})
+        new_sub = {"name": name, "plan": plan, "price": prices[plan]}
+        st.session_state.subscriptions.append(new_sub)
         st.success(f"Added {name} ({plan}) successfully!")
         st.rerun()
 
 st.divider()
 
-# --- CONTRACT ANALYSIS ---
+# --- DISPLAY SUBSCRIPTIONS ---
+st.subheader("📋 Your Subscriptions")
+if st.session_state.subscriptions:
+    for idx, sub in enumerate(st.session_state.subscriptions):
+        st.write(f"**{idx + 1}. {sub['name']}** - {sub['plan']} (₹{sub['price']:.2f}/mo)")
+else:
+    st.info("No active subscriptions added yet.")
+
+st.divider()
+
+# --- AI CONTRACT ANALYSIS ---
 st.subheader("🔍 Analyze Terms & Conditions")
-contract_text = st.text_area("Paste contract or terms of service below:")
+contract_text = st.text_area("Paste contract or terms of service below:", height=200)
+
 if st.button("Detect Hidden Clauses"):
     if contract_text:
         st.info("Analyzing contract text with AI...")
+        try:
+            if not ANTHROPIC_API_KEY:
+                st.error("Missing ANTHROPIC_API_KEY in Secrets or .env file!")
+            else:
+                client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+                
+                response = client.messages.create(
+                    model="claude-3-5-sonnet-20241022",
+                    max_tokens=500,
+                    messages=[{
+                        "role": "user", 
+                        "content": f"Analyze these terms of service and list key potential hidden clauses, auto-renewals, unexpected charges, or cancellation restrictions in bullet points:\n\n{contract_text}"
+                    }]
+                )
+                
+                st.success("Analysis Complete!")
+                st.write(response.content[0].text)
+        except Exception as e:
+            st.error(f"Error during analysis: {e}")
     else:
         st.warning("Please paste some text to analyze.")
