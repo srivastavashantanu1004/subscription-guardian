@@ -14,7 +14,7 @@ SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 
 raw_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or ""
-ANTHROPIC_API_KEY = raw_key.strip().strip('"').strip("'")
+ANTHROPIC_API_KEY = raw_key.strip().strip('"').strip("'").strip()
 
 # Initialize Supabase client if keys exist
 supabase: Client = None
@@ -62,11 +62,32 @@ with st.form("add_sub_form", clear_on_submit=True):
 
 st.divider()
 
-# --- DISPLAY SUBSCRIPTIONS ---
+# --- DISPLAY SUBSCRIPTIONS & CANCELLATION GENERATOR ---
 st.subheader("📋 Your Subscriptions")
 if st.session_state.subscriptions:
     for idx, sub in enumerate(st.session_state.subscriptions):
-        st.write(f"**{idx + 1}. {sub['name']}** - {sub['plan']} (₹{sub['price']:.2f}/mo)")
+        col_info, col_btn = st.columns([3, 1])
+        with col_info:
+            st.write(f"**{idx + 1}. {sub['name']}** - {sub['plan']} (₹{sub['price']:.2f}/mo)")
+        with col_btn:
+            if st.button("📧 Cancel Email", key=f"cancel_btn_{idx}"):
+                st.session_state[f"show_email_{idx}"] = not st.session_state.get(f"show_email_{idx}", False)
+        
+        # Expand cancellation email block if clicked
+        if st.session_state.get(f"show_email_{idx}", False):
+            email_template = f"""Subject: Request for Immediate Cancellation of {sub['name']} Subscription
+
+Dear {sub['name']} Support Team,
+
+I am writing to formally request the cancellation of my {sub['name']} subscription ({sub['plan']} plan) effective immediately. 
+
+Please ensure that auto-renewal is disabled and that no further charges are billed to my payment method. Kindly send me a written confirmation of this cancellation at your earliest convenience.
+
+Thank you,
+[Your Name]
+[Your Account/Registered Email]"""
+            
+            st.code(email_template, language="markdown")
 else:
     st.info("No active subscriptions added yet.")
 
@@ -92,7 +113,6 @@ if st.button("Detect Hidden Clauses"):
             else:
                 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
                 
-                # Using claude-3-haiku-20240307 for universal tier availability
                 response = client.messages.create(
                     model="claude-3-haiku-20240307",
                     max_tokens=500,
@@ -102,7 +122,8 @@ if st.button("Detect Hidden Clauses"):
                             "Analyze these terms of service and list key potential hidden clauses, auto-renewals, unexpected charges, "
                             "or cancellation restrictions in bullet points.\n\n"
                             "IMPORTANT: If the provided text does NOT contain any hidden charges, predatory clauses, or unexpected restrictions, "
-                            "simply reply with: 'No hidden clauses, unexpected charges, or cancellation restrictions detected—nothing to be aware of.'\n\n"
+                            "or if it is generic non-legal text, simply reply with: "
+                            "'No hidden clauses, unexpected charges, or cancellation restrictions detected—nothing to be aware of.'\n\n"
                             f"Text to analyze:\n{contract_text}"
                         )
                     }]
@@ -110,6 +131,10 @@ if st.button("Detect Hidden Clauses"):
                 
                 st.success("Analysis Complete!")
                 st.write(response.content[0].text)
+        except anthropic.AuthenticationError:
+            st.error("401 Authentication Error: Invalid API key. Please check that Shaurya's new key was copied completely into Streamlit Secrets.")
+        except anthropic.NotFoundError:
+            st.error("404 Error: The key's workspace lacks Tier 1 credit status on console.anthropic.com.")
         except Exception as e:
             st.error(f"Error during analysis: {e}")
     else:
