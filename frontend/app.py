@@ -45,14 +45,14 @@ with st.form("add_sub_form", clear_on_submit=True):
     
     plan = st.selectbox(
         "Plan Type",
-        ["Mobile (₹149/mo)", "Basic (₹199/mo)", "Standard (₹499/mo)", "Premium (₹649/mo)"]
+        ["Mobile", "Basic", "Standard", "Premium"]
     )
     
     prices = {
-        "Mobile (₹149/mo)": 149.00,
-        "Basic (₹199/mo)": 199.00,
-        "Standard (₹499/mo)": 499.00,
-        "Premium (₹649/mo)": 649.00
+        "Mobile": 149.00,
+        "Basic": 199.00,
+        "Standard": 499.00,
+        "Premium": 649.00
     }
     
     submitted = st.form_submit_button("Add Subscription")
