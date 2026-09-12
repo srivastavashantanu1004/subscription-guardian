@@ -132,7 +132,7 @@ if st.button("Detect Hidden Clauses"):
                 st.success("Analysis Complete!")
                 st.write(response.content[0].text)
         except anthropic.AuthenticationError:
-            st.error("401 Authentication Error: Invalid API key. Please check that Shaurya's new key was copied completely into Streamlit Secrets.")
+            st.error("401 Authentication Error: Invalid API key. Please check that Laudeya's new key was copied completely into Streamlit Secrets.")
         except anthropic.NotFoundError:
             st.error("404 Error: The key's workspace lacks Tier 1 credit status on console.anthropic.com.")
         except Exception as e:
