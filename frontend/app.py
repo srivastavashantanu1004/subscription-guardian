@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- YELLOW / AMBER GLASSMORPHISM THEME ---
+# --- YELLOW / AMBER THEME STYLING ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
@@ -60,7 +60,7 @@ st.markdown("""
         font-size: 2.2rem !important;
     }
 
-    /* Primary Buttons */
+    /* Buttons */
     .stButton > button {
         background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
         color: #0c0a09 !important;
@@ -75,7 +75,7 @@ st.markdown("""
         color: #000000 !important;
     }
 
-    /* Tabs */
+    /* Navigation Tabs */
     .stTabs [data-baseweb="tab-list"] {
         background-color: rgba(28, 25, 23, 0.7) !important;
         border-radius: 14px !important;
@@ -97,7 +97,7 @@ st.markdown("""
         border: 1px solid rgba(245, 158, 11, 0.5) !important;
     }
 
-    /* Inputs */
+    /* Form Fields */
     input, textarea {
         background-color: rgba(28, 25, 23, 0.7) !important;
         color: #fef08a !important;
@@ -107,7 +107,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- ENVIRONMENT & SECRETS ---
+# --- ENVIRONMENT & INITIALIZATION ---
 load_dotenv(dotenv_path="../.env")
 
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
@@ -126,7 +126,7 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception:
         pass
 
-# --- SAFE FIELD PARSERS ---
+# --- FIELD READERS ---
 def get_sub_name(sub):
     return sub.get("service_name") or sub.get("name") or sub.get("title") or "Unknown Service"
 
@@ -140,7 +140,7 @@ def get_sub_price(sub):
     except (ValueError, TypeError):
         return 0.0
 
-# --- DB OPERATIONS ---
+# --- DATABASE LOGIC ---
 def fetch_subscriptions():
     if supabase:
         try:
@@ -152,25 +152,31 @@ def fetch_subscriptions():
 
 def add_subscription_to_db(name, plan, price):
     if supabase:
-        # Schema field fallback list
-        candidate_payloads = [
-            {"service_name": name, "plan_tier": plan, "price": price},
-            {"service_name": name, "tier": plan, "price": price},
-            {"service_name": name, "plan_name": plan, "price": price},
-            {"service_name": name, "plan": plan, "price": price},
-            {"name": name, "plan": plan, "price": price}
-        ]
+        # Check actual database columns dynamically
+        existing = fetch_subscriptions()
+        if existing and isinstance(existing[0], dict):
+            sample = existing[0]
+            name_k = "service_name" if "service_name" in sample else "name"
+            plan_k = "plan" if "plan" in sample else "plan_tier" if "plan_tier" in sample else "tier"
+            price_k = "price" if "price" in sample else "amount" if "amount" in sample else "cost"
+            payloads = [{name_k: name, plan_k: plan, price_k: price}]
+        else:
+            payloads = [
+                {"service_name": name, "plan": plan, "price": price},
+                {"name": name, "plan": plan, "price": price},
+                {"service_name": name, "plan_tier": plan, "price": price}
+            ]
         
-        last_err = ""
-        for payload in candidate_payloads:
+        last_error = ""
+        for p in payloads:
             try:
-                supabase.table("subscriptions").insert(payload).execute()
+                supabase.table("subscriptions").insert(p).execute()
                 return True
             except Exception as e:
-                last_err = str(e)
+                last_error = str(e)
                 continue
-
-        st.error(f"❌ Schema error: {last_err}")
+        
+        st.error(f"❌ Database error: {last_error}")
         return False
     else:
         if "subscriptions" not in st.session_state:
@@ -192,7 +198,7 @@ def delete_subscription_from_db(sub_id, index):
             return True
     return False
 
-# --- EMAIL RECEIPT SCANNER ---
+# --- E-RECEIPT INBOX SCANNER ---
 def scan_email_receipts(email_user, email_pass):
     receipts = []
     try:
@@ -226,14 +232,14 @@ def scan_email_receipts(email_user, email_pass):
         st.error(f"IMAP Error: {str(e)}")
     return receipts
 
-# --- HERO HEADER ---
+# --- HEADER SECTION ---
 st.markdown("""
 <div style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.1) 100%); backdrop-filter: blur(20px); padding: 28px 36px; border-radius: 20px; border: 1px solid rgba(245, 158, 11, 0.3); margin-bottom: 28px;">
     <div style="display: flex; align-items: center; gap: 16px;">
         <span style="font-size: 2.8rem;">🛡️</span>
         <div>
             <h1 style="margin: 0; font-size: 2.4rem; font-weight: 800; background: linear-gradient(90deg, #fef08a, #fbbf24); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Subscription Guardian</h1>
-            <p style="margin-top: 4px; margin-bottom: 0; font-size: 1.05rem; color: #fde68a; font-weight: 500;">⚡ Automated E-Receipt Scanner & AI Fine-Print Clause Auditor</p>
+            <p style="margin-top: 4px; margin-bottom: 0; font-size: 1.05rem; color: #fde68a; font-weight: 500;">⚡ E-Receipt Mail Tracking & AI Clause Auditor</p>
         </div>
     </div>
 </div>
@@ -255,15 +261,15 @@ with m3:
 
 st.write("")
 
-# --- TABS ---
+# --- APP NAVIGATION ---
 tab_dashboard, tab_add, tab_receipts, tab_ai = st.tabs([
     "📊 Portfolio Dashboard", 
     "➕ Register Service", 
     "📧 E-Receipt Scanner",
-    "🤖 AI Clause & Fine-Print Auditor"
+    "🤖 AI Clause Auditor"
 ])
 
-# --- TAB 1: DASHBOARD ---
+# --- DASHBOARD TAB ---
 with tab_dashboard:
     if subscriptions:
         col_chart, col_list = st.columns([1.2, 1])
@@ -277,8 +283,8 @@ with tab_dashboard:
             st.bar_chart(chart_df, y="Cost (₹)", color="#f59e0b")
             
         with col_list:
-            st.markdown("### 🏷️ Active Subscriptions")
-            search_query = st.text_input("🔍 Search active items...", placeholder="Filter by name...").strip().lower()
+            st.markdown("### 🏷️ Active Services")
+            search_query = st.text_input("🔍 Search items...", placeholder="Filter list...").strip().lower()
             
             filtered = [
                 (idx, sub) for idx, sub in enumerate(subscriptions)
@@ -312,20 +318,20 @@ with tab_dashboard:
                             st.rerun()
                 
                 if st.session_state.get(f"show_e_{idx}", False):
-                    template = f"Subject: Formal Cancellation Request - {s_name}\n\nDear Customer Support,\n\nPlease process immediate cancellation for my {s_plan} subscription. Confirm receipt and billing termination.\n\nThank you."
+                    template = f"Subject: Cancellation Notice - {s_name}\n\nTo Whom It May Concern,\n\nPlease terminate my {s_plan} subscription immediately and stop all future charges.\n\nThank you."
                     st.code(template, language="text")
     else:
-        st.info("No active subscriptions logged yet.")
+        st.info("No active subscriptions registered yet.")
 
-# --- TAB 2: REGISTER ---
+# --- REGISTER TAB ---
 with tab_add:
-    st.markdown("### ➕ Add New Subscription")
+    st.markdown("### ➕ Register New Service")
     with st.form("add_sub_form", clear_on_submit=True):
         col_a, col_b, col_c = st.columns([2, 2, 1])
         with col_a:
-            name = st.text_input("Service Name", placeholder="e.g. Netflix, Spotify, AWS")
+            name = st.text_input("Service Name", placeholder="e.g. Netflix, Spotify")
         with col_b:
-            plan = st.text_input("Plan Tier", placeholder="e.g. Premium, Pro, Starter")
+            plan = st.text_input("Plan Tier", placeholder="e.g. Premium, Standard")
         with col_c:
             price = st.number_input("Monthly Cost (₹)", min_value=0.00, step=10.00, value=0.00)
         
@@ -333,15 +339,15 @@ with tab_add:
         if submitted:
             if name and plan and price > 0:
                 if add_subscription_to_db(name.strip(), plan.strip(), price):
-                    st.success(f"Successfully added {name}!")
+                    st.success(f"Added {name} successfully!")
                     st.rerun()
             else:
-                st.error("Please fill in valid data for all inputs.")
+                st.error("Please provide valid information for all fields.")
 
-# --- TAB 3: RECEIPT SCANNER ---
+# --- RECEIPT SCANNER TAB ---
 with tab_receipts:
-    st.markdown("### 📧 Automated Receipt Email Scanner")
-    st.write("Scan your inbox for digital billing receipts & invoice notifications.")
+    st.markdown("### 📧 Mail Receipt Scanner")
+    st.write("Scan your email inbox for billing receipts, recurring charges, and invoices.")
     
     e_col1, e_col2 = st.columns(2)
     with e_col1:
@@ -349,9 +355,9 @@ with tab_receipts:
     with e_col2:
         email_pass = st.text_input("App Password", type="password", help="Use a Gmail App Password")
         
-    if st.button("🔍 Scan Recent Inbox Receipts"):
+    if st.button("🔍 Scan Recent Receipts"):
         if email_user and email_pass:
-            with st.spinner("Fetching email receipts..."):
+            with st.spinner("Scanning inbox..."):
                 receipts = scan_email_receipts(email_user, email_pass)
                 if receipts:
                     for r in receipts:
@@ -360,18 +366,18 @@ with tab_receipts:
                         st.text(r['snippet'])
                         st.write("---")
                 else:
-                    st.info("No matching subscription receipts found in recent emails.")
+                    st.info("No subscription receipts found in recent emails.")
         else:
-            st.warning("Please enter your email and app password.")
+            st.warning("Please enter your email credentials.")
 
-# --- TAB 4: AI AUDITOR ---
+# --- AI AUDITOR TAB ---
 with tab_ai:
-    st.markdown("### 🧠 AI Portfolio Redundancy Audit")
-    if st.button("⚡ Run Redundancy Scan"):
+    st.markdown("### 🧠 AI Redundancy Analyzer")
+    if st.button("⚡ Run Redundancy Check"):
         if len(subscriptions) < 2:
-            st.warning("Please register at least 2 subscriptions first.")
+            st.warning("Add at least 2 subscriptions first.")
         else:
-            with st.spinner("Analyzing portfolio for overlaps..."):
+            with st.spinner("Analyzing subscriptions..."):
                 try:
                     sub_summary = "\n".join([f"- {get_sub_name(s)}: {get_sub_plan(s)} (₹{get_sub_price(s)}/mo)" for s in subscriptions])
                     headers = {}
@@ -381,19 +387,19 @@ with tab_ai:
                     res = client.messages.create(
                         model="claude-3-5-sonnet-20240620",
                         max_tokens=400,
-                        messages=[{"role": "user", "content": f"Analyze redundant services in:\n{sub_summary}"}]
+                        messages=[{"role": "user", "content": f"Identify redundant software/services from this list:\n{sub_summary}"}]
                     )
                     st.markdown(res.content[0].text)
                 except Exception as e:
                     st.error(f"API Error: {str(e)}")
     
     st.write("---")
-    st.markdown("### 📜 AI Hidden Clause & Fine-Print Auditor")
-    contract_text = st.text_area("📋 Paste Contract Terms", height=140, placeholder="Paste agreement text or terms of service here...")
+    st.markdown("### 📜 AI Fine-Print & Clause Auditor")
+    contract_text = st.text_area("📋 Terms of Service Text", height=140, placeholder="Paste agreement text here...")
     
-    if st.button("⚖️ Analyze Hidden Clauses & Restrictions"):
+    if st.button("⚖️ Audit Contract Clauses"):
         if contract_text.strip():
-            with st.spinner("Auditing fine-print terms..."):
+            with st.spinner("Auditing contract text..."):
                 try:
                     headers = {}
                     if WORKSPACE_ID:
@@ -402,10 +408,10 @@ with tab_ai:
                     res = client.messages.create(
                         model="claude-3-5-sonnet-20240620",
                         max_tokens=350,
-                        messages=[{"role": "user", "content": f"Identify cancellation restrictions, auto-renew risks, and hidden fee penalties in:\n{contract_text}"}]
+                        messages=[{"role": "user", "content": f"Extract hidden cancellation traps, fee penalties, and auto-renew clauses from:\n{contract_text}"}]
                     )
                     st.markdown(res.content[0].text)
                 except Exception as e:
                     st.error(f"Audit Error: {str(e)}")
         else:
-            st.warning("Please paste agreement text first.")
+            st.warning("Please enter contract text first.")
