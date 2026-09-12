@@ -92,8 +92,9 @@ if st.button("Detect Hidden Clauses"):
             else:
                 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
                 
+                # Using standard release snapshot string to avoid 404 routing errors
                 response = client.messages.create(
-                    model="claude-3-5-sonnet-latest",
+                    model="claude-3-5-sonnet-20240620",
                     max_tokens=500,
                     messages=[{
                         "role": "user", 
