@@ -13,7 +13,6 @@ load_dotenv(dotenv_path="../.env")
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 
-# Fetch API key and strip whitespace/quotes if present
 raw_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or ""
 ANTHROPIC_API_KEY = raw_key.strip().strip('"').strip("'")
 
@@ -29,7 +28,6 @@ if SUPABASE_URL and SUPABASE_KEY:
 st.title("🛡️ Subscription Guardian")
 st.caption("AI Subscription Manager & Hidden Clause Detector")
 
-# Initialize session state for temporary storing if DB isn't loaded
 if "subscriptions" not in st.session_state:
     st.session_state.subscriptions = []
 
@@ -44,24 +42,38 @@ st.divider()
 # --- ADD NEW SUBSCRIPTION FORM ---
 st.subheader("➕ Add New Subscription")
 with st.form("add_sub_form", clear_on_submit=True):
-    name = st.text_input("Service Name", value="Netflix")
+    name = st.text_input("Service Name", placeholder="e.g. Netflix, Spotify, Prime")
     
     plan_options = {
+        "Select a plan...": None,
         "Mobile (₹149)": ("Mobile", 149.00),
         "Basic (₹199)": ("Basic", 199.00),
         "Standard (₹499)": ("Standard", 499.00),
-        "Premium (₹649)": ("Premium", 649.00)
+        "Premium (₹649)": ("Premium", 649.00),
+        "Custom Plan": ("Custom", 0.00)
     }
     
     selected_option = st.selectbox("Plan Type", list(plan_options.keys()))
+    custom_price = st.number_input("Monthly Price (₹)", min_value=0.00, step=10.00, value=0.00)
     
     submitted = st.form_submit_button("Add Subscription")
     if submitted:
-        plan_name, plan_price = plan_options[selected_option]
-        new_sub = {"name": name, "plan": plan_name, "price": plan_price}
-        st.session_state.subscriptions.append(new_sub)
-        st.success(f"Added {name} ({plan_name}) successfully!")
-        st.rerun()
+        if not name.strip():
+            st.error("Please enter a service name.")
+        elif selected_option == "Select a plan...":
+            st.error("Please select a valid plan type.")
+        else:
+            if selected_option == "Custom Plan":
+                plan_name = "Custom"
+                plan_price = custom_price
+            else:
+                plan_name, default_price = plan_options[selected_option]
+                plan_price = custom_price if custom_price > 0 else default_price
+
+            new_sub = {"name": name, "plan": plan_name, "price": plan_price}
+            st.session_state.subscriptions.append(new_sub)
+            st.success(f"Added {name} ({plan_name}) successfully!")
+            st.rerun()
 
 st.divider()
 
@@ -78,7 +90,6 @@ st.divider()
 # --- AI CONTRACT ANALYSIS ---
 st.subheader("🔍 Analyze Terms & Conditions")
 
-# Key diagnostics check
 if ANTHROPIC_API_KEY:
     masked_key = ANTHROPIC_API_KEY[:8] + "..." + ANTHROPIC_API_KEY[-4:]
     st.caption(f"🔑 Active Key Loaded: `{masked_key}`")
