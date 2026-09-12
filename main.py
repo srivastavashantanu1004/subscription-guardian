@@ -106,12 +106,9 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception:
         pass
 
+# Initialize session state with NO hardcoded default records
 if "subscriptions" not in st.session_state:
-    st.session_state.subscriptions = [
-        {"id": 1, "service_name": "Netflix", "plan": "Premium", "price": 649.00},
-        {"id": 2, "service_name": "Spotify", "plan": "Individual", "price": 119.00},
-        {"id": 3, "service_name": "Amazon Prime", "plan": "Annual", "price": 124.00}
-    ]
+    st.session_state.subscriptions = []
 
 # --- UNIVERSAL RECORD PARSERS ---
 def get_val(item, *keys, default=""):
@@ -138,7 +135,7 @@ def fetch_all():
     if supabase:
         try:
             res = supabase.table("subscriptions").select("*").execute()
-            if res.data:
+            if res.data is not None:
                 return res.data
         except Exception:
             pass
@@ -260,7 +257,7 @@ with tab1:
                         language="text"
                     )
     else:
-        st.info("No subscriptions added yet.")
+        st.info("No active subscriptions registered yet. Add one in the 'Register Service' tab.")
 
 # --- TAB 2: REGISTER ---
 with tab2:
