@@ -131,7 +131,7 @@ def get_sub_name(sub):
     return sub.get("service_name") or sub.get("name") or sub.get("title") or "Unknown Service"
 
 def get_sub_plan(sub):
-    return sub.get("plan") or sub.get("plan_name") or sub.get("tier") or "Standard"
+    return sub.get("plan_tier") or sub.get("plan") or sub.get("tier") or sub.get("plan_name") or "Standard"
 
 def get_sub_price(sub):
     val = sub.get("price") if "price" in sub else sub.get("amount") if "amount" in sub else sub.get("cost", 0.0)
@@ -152,17 +152,26 @@ def fetch_subscriptions():
 
 def add_subscription_to_db(name, plan, price):
     if supabase:
-        try:
-            # Primary schema uses service_name
-            supabase.table("subscriptions").insert({
-                "service_name": name,
-                "plan": plan,
-                "price": price
-            }).execute()
-            return True
-        except Exception as e:
-            st.error(f"❌ Database Insert Error: {str(e)}")
-            return False
+        # Schema field fallback list
+        candidate_payloads = [
+            {"service_name": name, "plan_tier": plan, "price": price},
+            {"service_name": name, "tier": plan, "price": price},
+            {"service_name": name, "plan_name": plan, "price": price},
+            {"service_name": name, "plan": plan, "price": price},
+            {"name": name, "plan": plan, "price": price}
+        ]
+        
+        last_err = ""
+        for payload in candidate_payloads:
+            try:
+                supabase.table("subscriptions").insert(payload).execute()
+                return True
+            except Exception as e:
+                last_err = str(e)
+                continue
+
+        st.error(f"❌ Schema error: {last_err}")
+        return False
     else:
         if "subscriptions" not in st.session_state:
             st.session_state.subscriptions = []
