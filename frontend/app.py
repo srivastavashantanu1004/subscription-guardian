@@ -101,7 +101,7 @@ with st.form("add_sub_form", clear_on_submit=True):
 
 st.write("---")
 
-# --- SUBSCRIPTION LIST & CANCELLATION MAIL ---
+# --- SUBSCRIPTION LIST & CANCELLATION EMAIL GENERATOR ---
 st.subheader("Your Active Plans")
 
 if st.session_state.subscriptions:
@@ -111,21 +111,23 @@ if st.session_state.subscriptions:
             with c_info:
                 st.write(f"**{sub['name']}** — {sub['plan']} | **₹{sub['price']:.2f}** / month")
             with c_action:
-                if st.button("Generate Cancellation Mail", key=f"cancel_{idx}"):
+                if st.button("Cancellation Email", key=f"cancel_{idx}"):
                     st.session_state[f"show_email_{idx}"] = not st.session_state.get(f"show_email_{idx}", False)
             
             if st.session_state.get(f"show_email_{idx}", False):
-                template = f"""Subject: Request to Cancel Subscription - {sub['name']}
+                template = f"""Subject: Request for Immediate Cancellation - {sub['name']}
 
 Hello Support Team,
 
-Please cancel my subscription for {sub['name']} ({sub['plan']} plan) immediately. 
+I am writing to formally request the cancellation of my {sub['name']} subscription ({sub['plan']} plan) effective immediately. 
 
-Kindly disable auto-renewal for my account and confirm that no further charges will be processed.
+Please ensure that auto-renewal is turned off for my account and confirm that no further charges will be billed to my payment method. 
+
+Kindly reply with written confirmation of this cancellation at your earliest convenience.
 
 Thank you,
 [Your Name]
-[Your Account Email]"""
+[Your Account Email / Phone Number]"""
                 st.code(template, language="text")
 else:
     st.info("No subscriptions added yet. Use the form above to get started.")
