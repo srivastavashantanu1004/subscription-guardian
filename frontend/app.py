@@ -48,21 +48,19 @@ def fetch_subscriptions():
 def add_subscription_to_db(name, plan, price):
     if supabase:
         try:
-            # Simple direct insert
             supabase.table("subscriptions").insert({
-                "name": name,
+                "service_name": name,
                 "plan": plan,
                 "price": price
             }).execute()
             return True
         except Exception as e:
-            # Print explicit Supabase error string to identify missing column
-            st.error(f"Supabase Direct Error: {str(e)}")
+            st.error(f"Database Error: {str(e)}")
             return False
     else:
         if "subscriptions" not in st.session_state:
             st.session_state.subscriptions = []
-        st.session_state.subscriptions.append({"name": name, "plan": plan, "price": price})
+        st.session_state.subscriptions.append({"service_name": name, "plan": plan, "price": price})
         return True
 
 def delete_subscription_from_db(sub_id, index):
@@ -81,15 +79,14 @@ def delete_subscription_from_db(sub_id, index):
 
 # Safe Field Parsers
 def get_sub_name(sub):
-    return sub.get("name") or sub.get("service_name") or sub.get("title") or "Unknown Service"
+    return sub.get("service_name") or sub.get("name") or "Unknown Service"
 
 def get_sub_plan(sub):
-    return sub.get("plan") or sub.get("plan_name") or sub.get("tier") or "Standard"
+    return sub.get("plan") or sub.get("tier") or "Standard"
 
 def get_sub_price(sub):
-    val = sub.get("price") if "price" in sub else sub.get("amount") if "amount" in sub else sub.get("cost", 0.0)
     try:
-        return float(val)
+        return float(sub.get("price", 0.0))
     except (ValueError, TypeError):
         return 0.0
 
