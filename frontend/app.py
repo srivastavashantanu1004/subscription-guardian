@@ -92,13 +92,19 @@ if st.button("Detect Hidden Clauses"):
             else:
                 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
                 
-                # Using standard release snapshot string to avoid 404 routing errors
+                # Using claude-3-haiku-20240307 for universal tier availability
                 response = client.messages.create(
-                    model="claude-3-5-sonnet-20240620",
+                    model="claude-3-haiku-20240307",
                     max_tokens=500,
                     messages=[{
                         "role": "user", 
-                        "content": f"Analyze these terms of service and list key potential hidden clauses, auto-renewals, unexpected charges, or cancellation restrictions in bullet points:\n\n{contract_text}"
+                        "content": (
+                            "Analyze these terms of service and list key potential hidden clauses, auto-renewals, unexpected charges, "
+                            "or cancellation restrictions in bullet points.\n\n"
+                            "IMPORTANT: If the provided text does NOT contain any hidden charges, predatory clauses, or unexpected restrictions, "
+                            "simply reply with: 'No hidden clauses, unexpected charges, or cancellation restrictions detected—nothing to be aware of.'\n\n"
+                            f"Text to analyze:\n{contract_text}"
+                        )
                     }]
                 )
                 
