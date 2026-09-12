@@ -43,23 +43,21 @@ st.subheader("➕ Add New Subscription")
 with st.form("add_sub_form", clear_on_submit=True):
     name = st.text_input("Service Name", value="Netflix")
     
-    plan = st.selectbox(
-        "Plan Type",
-        ["Mobile", "Basic", "Standard", "Premium"]
-    )
-    
-    prices = {
-        "Mobile": 149.00,
-        "Basic": 199.00,
-        "Standard": 499.00,
-        "Premium": 649.00
+    plan_options = {
+        "Mobile (₹149)": ("Mobile", 149.00),
+        "Basic (₹199)": ("Basic", 199.00),
+        "Standard (₹499)": ("Standard", 499.00),
+        "Premium (₹649)": ("Premium", 649.00)
     }
+    
+    selected_option = st.selectbox("Plan Type", list(plan_options.keys()))
     
     submitted = st.form_submit_button("Add Subscription")
     if submitted:
-        new_sub = {"name": name, "plan": plan, "price": prices[plan]}
+        plan_name, plan_price = plan_options[selected_option]
+        new_sub = {"name": name, "plan": plan_name, "price": plan_price}
         st.session_state.subscriptions.append(new_sub)
-        st.success(f"Added {name} ({plan}) successfully!")
+        st.success(f"Added {name} ({plan_name}) successfully!")
         st.rerun()
 
 st.divider()
