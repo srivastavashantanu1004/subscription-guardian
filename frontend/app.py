@@ -7,7 +7,7 @@ from supabase import create_client, Client
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Subscription Guardian", page_icon="💳", layout="wide")
 
-# --- CUSTOM CSS (Clean, Human UI) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
     .stApp {
@@ -45,7 +45,9 @@ load_dotenv(dotenv_path="../.env")
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 
-ACTIVE_KEY = (st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or "").strip().strip('"').strip("'").strip()
+# Read API Key cleanly
+raw_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or ""
+ACTIVE_KEY = str(raw_key).strip().strip('"').strip("'").strip()
 
 # Initialize Supabase client
 supabase: Client = None
@@ -141,29 +143,32 @@ st.write("Paste terms, renewal details, or cancellation policies below to check 
 contract_text = st.text_area("Contract or Terms Text", height=180, placeholder="Paste agreement text here...")
 
 if st.button("Review Text"):
-    if contract_text.strip():
+    clean_input = contract_text.strip()
+    if clean_input:
         st.info("Analyzing document details...")
         try:
+            # Initialize client explicitly with cleared key string
             client = anthropic.Anthropic(api_key=ACTIVE_KEY)
             
+            # Simplified payload request
             response = client.messages.create(
-                model="claude-haiku-4-5-20240620",
-                max_tokens=500,
-                messages=[{
-                    "role": "user", 
-                    "content": (
-                        "Examine the following text for auto-renewal clauses, cancellation fees, price change terms, or hidden restrictions. "
-                        "Summarize key items clearly in bullet points.\n\n"
-                        "If the text is standard, neutral, or contains no unexpected fees/restrictions, respond strictly with: "
-                        "'Nothing to be aware of — no hidden fees or strict cancellation rules detected.'\n\n"
-                        f"Text:\n{contract_text}"
-                    )
-                }]
+                model="claude-3-5-sonnet-20240620",
+                max_tokens=300,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"Review this text for subscription charges or fine print:\n\n{clean_input}"
+                    }
+                ]
             )
             
             st.write("### Review Results")
             st.write(response.content[0].text)
-        except Exception:
-            st.error("The document review service is temporarily unavailable. Please try again in a few moments.")
+            
+        except anthropic.APIError as api_err:
+            # Displays exact Anthropic error code and raw response message
+            st.error(f"API Code {api_err.status_code}: {api_err.message}")
+        except Exception as e:
+            st.error(f"Execution Error: {str(e)}")
     else:
         st.warning("Please paste contract text before reviewing.")
