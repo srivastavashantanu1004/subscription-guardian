@@ -1,109 +1,45 @@
 ﻿import os
-import re
-import imaplib
-import email
 import streamlit as st
 import anthropic
-import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(
-    page_title="Subscription Guardian",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="Subscription Guardian", page_icon="💳", layout="wide")
 
-# --- MODERN DARK GOLD / AMBER GLASSMORPHISM THEME ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
-    * {
-        font-family: 'Plus Jakarta Sans', sans-serif !important;
-    }
-
     .stApp {
-        background: radial-gradient(circle at 50% 0%, #1c1917 0%, #0c0a09 100%) !important;
-        color: #fef08a !important;
+        background-color: #fafafa;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
-
-    /* Headings */
-    h1, h2, h3, h4, h5, h6 {
-        color: #fbbf24 !important;
-        font-weight: 700 !important;
+    [data-testid="stMetricValue"] {
+        font-size: 1.8rem !important;
+        font-weight: 600 !important;
+        color: #111827;
     }
-
-    /* Metric Cards */
-    div[data-testid="stMetric"] {
-        background: rgba(28, 25, 23, 0.7) !important;
-        border: 1px solid rgba(245, 158, 11, 0.25) !important;
-        border-radius: 14px !important;
-        padding: 16px 20px !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
-    }
-
-    div[data-testid="stMetricLabel"] > div {
-        color: #fde68a !important;
-        font-size: 0.85rem !important;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    div[data-testid="stMetricValue"] > div {
-        color: #fbbf24 !important;
-        font-weight: 800 !important;
-        font-size: 2rem !important;
-    }
-
-    /* Form Inputs */
-    input, textarea, select {
-        background-color: rgba(12, 10, 9, 0.8) !important;
-        color: #fff !important;
-        border-radius: 10px !important;
-        border: 1px solid rgba(245, 158, 11, 0.3) !important;
-    }
-
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
-        color: #0c0a09 !important;
-        border: none !important;
-        font-weight: 700 !important;
-        border-radius: 10px !important;
-        padding: 8px 18px !important;
-        transition: all 0.2s ease;
-    }
-    
-    .stButton > button:hover {
-        background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%) !important;
-        transform: translateY(-1px);
-    }
-
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: rgba(28, 25, 23, 0.5) !important;
-        border-radius: 12px !important;
-        padding: 4px !important;
-        border: 1px solid rgba(245, 158, 11, 0.15) !important;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        color: #fde68a !important;
+    .stTextInput input, .stNumberInput input, .stTextArea textarea {
         border-radius: 8px !important;
-        padding: 8px 16px !important;
+        border: 1px solid #e5e7eb !important;
+        background-color: #ffffff !important;
     }
-
-    .stTabs [aria-selected="true"] {
-        background: rgba(245, 158, 11, 0.2) !important;
-        color: #fbbf24 !important;
+    .stButton>button {
+        border-radius: 8px !important;
+        font-weight: 500 !important;
+        border: none !important;
+        background-color: #0f172a !important;
+        color: #ffffff !important;
+        padding: 0.5rem 1rem !important;
+    }
+    .stButton>button:hover {
+        background-color: #1e293b !important;
+        color: #ffffff !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- INITIALIZATION ---
+# --- LOAD ENVIRONMENT & SECRETS ---
 load_dotenv(dotenv_path="../.env")
 
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
@@ -115,6 +51,7 @@ ACTIVE_KEY = str(raw_key).strip().strip('"').strip("'").strip()
 raw_workspace = st.secrets.get("ANTHROPIC_WORKSPACE_ID") or os.getenv("ANTHROPIC_WORKSPACE_ID") or ""
 WORKSPACE_ID = str(raw_workspace).strip().strip('"').strip("'").strip()
 
+# Initialize Supabase client
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
@@ -122,245 +59,147 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception:
         pass
 
-if "subscriptions" not in st.session_state:
-    st.session_state.subscriptions = [
-        {"id": 1, "service_name": "Netflix", "plan": "Premium", "price": 649.00},
-        {"id": 2, "service_name": "Spotify", "plan": "Individual", "price": 119.00},
-        {"id": 3, "service_name": "Amazon Prime", "plan": "Annual", "price": 124.00}
-    ]
-
-# --- UNIVERSAL RECORD PARSERS ---
-def get_val(item, *keys, default=""):
-    for k in keys:
-        if k in item and item[k] is not None:
-            return item[k]
-    return default
-
-def get_name(item):
-    return str(get_val(item, "service_name", "name", "title", "service", default="Unknown Service"))
-
-def get_plan(item):
-    return str(get_val(item, "plan", "plan_tier", "tier", "plan_name", default="Standard"))
-
-def get_price(item):
-    val = get_val(item, "price", "cost", "amount", "monthly_cost", default=0.0)
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return 0.0
-
-# --- DATA OPERATIONS ---
-def fetch_all():
+# Helper functions for database operations
+def fetch_subscriptions():
     if supabase:
         try:
             res = supabase.table("subscriptions").select("*").execute()
-            if res.data:
-                return res.data
+            return res.data or []
         except Exception:
-            pass
-    return st.session_state.subscriptions
+            return []
+    return st.session_state.get("subscriptions", [])
 
-def insert_record(name, plan, price):
+def add_subscription_to_db(name, plan, price):
     if supabase:
-        # Dynamically attempt payloads until one succeeds
-        payloads = [
-            {"service_name": name, "plan": plan, "price": price},
-            {"name": name, "plan": plan, "price": price},
-            {"service_name": name, "plan_tier": plan, "price": price},
-            {"service_name": name, "tier": plan, "price": price},
-            {"name": name, "tier": plan, "cost": price}
-        ]
-        for p in payloads:
-            try:
-                supabase.table("subscriptions").insert(p).execute()
-                return True
-            except Exception:
-                continue
-    
-    # Session state fallback
-    st.session_state.subscriptions.append({
-        "id": len(st.session_state.subscriptions) + 1,
-        "service_name": name,
-        "plan": plan,
-        "price": price
-    })
-    return True
-
-def delete_record(record_id, index):
-    if supabase and record_id:
         try:
-            supabase.table("subscriptions").delete().eq("id", record_id).execute()
-        except Exception:
-            pass
-    
-    if index < len(st.session_state.subscriptions):
-        st.session_state.subscriptions.pop(index)
-    return True
+            supabase.table("subscriptions").insert({
+                "name": name,
+                "plan": plan,
+                "price": price
+            }).execute()
+            return True
+        except Exception as e:
+            st.error(f"Database Error: {str(e)}")
+            return False
+    else:
+        st.session_state.subscriptions.append({"name": name, "plan": plan, "price": price})
+        return True
 
-# --- HEADER ---
-st.markdown("""
-<div style="background: rgba(28, 25, 23, 0.6); padding: 24px 32px; border-radius: 16px; border: 1px solid rgba(245, 158, 11, 0.2); margin-bottom: 24px;">
-    <div style="display: flex; align-items: center; gap: 14px;">
-        <span style="font-size: 2.2rem;">🛡️</span>
-        <div>
-            <h1 style="margin: 0; font-size: 2rem;">Subscription Guardian</h1>
-            <p style="margin: 4px 0 0 0; color: #fde68a; font-size: 0.95rem;">Manage active subscriptions, scan receipts, and audit contract fine print.</p>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+# --- MAIN HEADER ---
+st.title("Subscription Guardian")
+st.write("Track monthly expenses and review contract terms before renewing.")
 
-data = fetch_all()
-
-# --- TOP METRICS ---
-total_monthly = sum(get_price(item) for item in data)
-total_yearly = total_monthly * 12
-
-m1, m2, m3 = st.columns(3)
-with m1:
-    st.metric("Monthly Cost", f"₹{total_monthly:,.2f}")
-with m2:
-    st.metric("Annual Projection", f"₹{total_yearly:,.2f}")
-with m3:
-    st.metric("Active Subscriptions", len(data))
+# Load active list from database
+subscriptions = fetch_subscriptions()
 
 st.write("")
 
-# --- TABS ---
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 Dashboard", 
-    "➕ Register Service", 
-    "📧 Receipt Scanner", 
-    "🤖 AI Auditor"
-])
+# --- OVERVIEW METRICS ---
+total_spend = sum(float(sub["price"]) for sub in subscriptions)
+m1, m2 = st.columns(2)
+with m1:
+    st.metric("Total Monthly Cost", f"₹{total_spend:.2f}")
+with m2:
+    st.metric("Active Services", len(subscriptions))
 
-# --- DASHBOARD ---
-with tab1:
-    if data:
-        c1, c2 = st.columns([1.2, 1])
-        with c1:
-            st.markdown("### Cost Distribution")
-            df = pd.DataFrame([
-                {"Service": get_name(x), "Cost (₹)": get_price(x)} for x in data
-            ]).set_index("Service")
-            st.bar_chart(df, y="Cost (₹)", color="#f59e0b")
+st.write("---")
 
-        with c2:
-            st.markdown("### Managed Subscriptions")
-            for idx, item in enumerate(data):
-                rec_id = item.get("id")
-                s_name = get_name(item)
-                s_plan = get_plan(item)
-                s_price = get_price(item)
-
-                st.markdown(f"""
-                <div style="background: rgba(45, 26, 10, 0.4); padding: 14px; border-radius: 10px; border: 1px solid rgba(245, 158, 11, 0.2); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <strong style="color: #fbbf24; font-size: 1.05rem;">{s_name}</strong>
-                        <div style="font-size: 0.8rem; color: #fde68a;">Plan: {s_plan}</div>
-                    </div>
-                    <div style="font-size: 1.15rem; font-weight: 700; color: #fef08a;">₹{s_price:,.2f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                b1, b2 = st.columns([1, 1])
-                with b1:
-                    if st.button("Draft Cancel Email", key=f"draft_{idx}"):
-                        st.session_state[f"show_mail_{idx}"] = not st.session_state.get(f"show_mail_{idx}", False)
-                with b2:
-                    if st.button("Delete Service", key=f"del_{idx}"):
-                        delete_record(rec_id, idx)
-                        st.rerun()
-
-                if st.session_state.get(f"show_mail_{idx}", False):
-                    st.code(
-                        f"Subject: Cancel Subscription - {s_name}\n\nDear Support Team,\n\nPlease cancel my {s_name} ({s_plan}) account immediately and send confirmation of termination.\n\nThank you.",
-                        language="text"
-                    )
-    else:
-        st.info("No subscriptions added yet.")
-
-# --- REGISTER SERVICE ---
-with tab2:
-    st.markdown("### Add New Subscription")
-    with st.form("add_form", clear_on_submit=True):
-        f1, f2, f3 = st.columns([2, 2, 1])
-        with f1:
-            in_name = st.text_input("Service Name", placeholder="e.g. Netflix, AWS, GitHub")
-        with f2:
-            in_plan = st.text_input("Plan Tier", placeholder="e.g. Pro, Premium, Basic")
-        with f3:
-            in_price = st.number_input("Monthly Cost (₹)", min_value=0.0, step=10.0, value=0.0)
-
-        if st.form_submit_button("Save Subscription"):
-            if in_name.strip() and in_price > 0:
-                insert_record(in_name.strip(), in_plan.strip() or "Standard", in_price)
-                st.success(f"Added {in_name}!")
-                st.rerun()
-            else:
-                st.warning("Please enter a service name and a valid monthly price.")
-
-# --- RECEIPT SCANNER ---
-with tab3:
-    st.markdown("### E-Receipt Inbox Scanner")
-    st.write("Connect to Gmail via IMAP to detect incoming invoices and subscription charges.")
+# --- ADD SUBSCRIPTION ---
+st.subheader("Add a Subscription")
+with st.form("add_sub_form", clear_on_submit=True):
+    col_a, col_b, col_c = st.columns([2, 2, 1])
+    with col_a:
+        name = st.text_input("Service Name", placeholder="e.g. Netflix, Gym, Cloud Storage")
+    with col_b:
+        plan = st.text_input("Plan Details", placeholder="e.g. Standard, Individual, Annual")
+    with col_c:
+        price = st.number_input("Cost (₹/mo)", min_value=0.00, step=10.00, value=0.00)
     
-    e1, e2 = st.columns(2)
-    with e1:
-        email_user = st.text_input("Email Address", placeholder="user@gmail.com")
-    with e2:
-        email_pass = st.text_input("App Password", type="password")
-
-    if st.button("Scan Inbox"):
-        if email_user and email_pass:
-            with st.spinner("Connecting to mail server..."):
-                try:
-                    mail = imaplib.IMAP4_SSL("imap.gmail.com")
-                    mail.login(email_user, email_pass)
-                    mail.select("inbox")
-                    
-                    status, messages = mail.search(None, '(OR SUBJECT "receipt" (OR SUBJECT "subscription" SUBJECT "invoice"))')
-                    mail_ids = messages[0].split()
-                    
-                    if mail_ids:
-                        for i in mail_ids[-5:]:
-                            _, msg_data = mail.fetch(i, "(RFC822)")
-                            for response_part in msg_data:
-                                if isinstance(response_part, tuple):
-                                    msg = email.message_from_bytes(response_part[1])
-                                    subject = msg["subject"] or "No Subject"
-                                    st.markdown(f"**Found:** {subject}")
-                    else:
-                        st.info("No recent receipt emails found.")
-                    mail.logout()
-                except Exception as ex:
-                    st.error(f"Mail Connection Error: {str(ex)}")
+    submitted = st.form_submit_button("Save Subscription")
+    if submitted:
+        if not name.strip():
+            st.error("Please enter a service name.")
+        elif not plan.strip():
+            st.error("Please specify plan details.")
+        elif price <= 0:
+            st.error("Please enter a valid monthly price.")
         else:
-            st.warning("Enter both your email and app password.")
+            if add_subscription_to_db(name.strip(), plan.strip(), price):
+                st.success(f"Added {name} to your list.")
+                st.rerun()
 
-# --- AI AUDITOR ---
-with tab4:
-    st.markdown("### AI Contract & Fine-Print Auditor")
-    contract_text = st.text_area("Paste terms of service or cancellation clauses:", height=150)
+st.write("---")
 
-    if st.button("Analyze Terms"):
-        if contract_text.strip():
-            if not ACTIVE_KEY:
-                st.error("Missing ANTHROPIC_API_KEY secret/environment variable.")
-            else:
-                with st.spinner("Analyzing contract text..."):
-                    try:
-                        headers = {}
-                        if WORKSPACE_ID:
-                            headers["anthropic-workspace-id"] = WORKSPACE_ID
-                        client = anthropic.Anthropic(api_key=ACTIVE_KEY, default_headers=headers if headers else None)
-                        res = client.messages.create(
-                            model="claude-3-5-sonnet-20240620",
-                            max_tokens=400,
-                            messages=[{"role": "user", "content": f"Extract hidden cancellation traps, auto-renewal terms, and unexpected fees from:\n{contract_text}"}]
-                        )
-                        st.markdown(res.content[0].text)
-                    except Exception as err:
-                        st.error(f"API Error: {str(err)}")
-        else:
-            st.warning("Paste contract text before running analysis.")
+# --- SUBSCRIPTION LIST & CANCELLATION EMAIL GENERATOR ---
+st.subheader("Your Active Plans")
+
+if subscriptions:
+    for idx, sub in enumerate(subscriptions):
+        with st.container():
+            c_info, c_action = st.columns([3, 1])
+            with c_info:
+                st.write(f"**{sub['name']}** — {sub['plan']} | **₹{float(sub['price']):.2f}** / month")
+            with c_action:
+                if st.button("Cancellation Email", key=f"cancel_{idx}"):
+                    st.session_state[f"show_email_{idx}"] = not st.session_state.get(f"show_email_{idx}", False)
+            
+            if st.session_state.get(f"show_email_{idx}", False):
+                template = f"""Subject: Request for Immediate Cancellation - {sub['name']}
+
+Hello Support Team,
+
+I am writing to formally request the cancellation of my {sub['name']} subscription ({sub['plan']} plan) effective immediately. 
+
+Please ensure that auto-renewal is turned off for my account and confirm that no further charges will be billed to my payment method. 
+
+Kindly reply with written confirmation of this cancellation at your earliest convenience.
+
+Thank you,
+[Your Name]
+[Your Account Email / Phone Number]"""
+                st.code(template, language="text")
+else:
+    st.info("No subscriptions added yet. Use the form above to get started.")
+
+st.write("---")
+
+# --- CONTRACT & CLAUSE REVIEW ---
+st.subheader("Review Terms & Fine Print")
+st.write("Paste terms, renewal details, or cancellation policies below to check for unexpected charges or limitations.")
+
+contract_text = st.text_area("Contract or Terms Text", height=180, placeholder="Paste agreement text here...")
+
+if st.button("Review Text"):
+    clean_input = contract_text.strip()
+    if clean_input:
+        st.info("Analyzing document details...")
+        try:
+            headers = {}
+            if WORKSPACE_ID:
+                headers["anthropic-workspace-id"] = WORKSPACE_ID
+
+            client = anthropic.Anthropic(
+                api_key=ACTIVE_KEY,
+                default_headers=headers if headers else None
+            )
+            
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20240620",
+                max_tokens=300,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"Review this text for subscription charges or fine print:\n\n{clean_input}"
+                    }
+                ]
+            )
+            
+            st.write("### Review Results")
+            st.write(response.content[0].text)
+            
+        except anthropic.APIError as api_err:
+            st.error(f"API Code {api_err.status_code}: {api_err.message}")
+        except Exception as e:
+            st.error(f"Execution Error: {str(e)}")
+    else:
+        st.warning("Please paste contract text before reviewing.")
