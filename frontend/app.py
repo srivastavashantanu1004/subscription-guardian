@@ -7,30 +7,23 @@ from supabase import create_client, Client
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Subscription Guardian", page_icon="💳", layout="wide")
 
-# --- CUSTOM CSS (Minimal, Non-AI Look) ---
+# --- CUSTOM CSS (Clean, Human UI) ---
 st.markdown("""
 <style>
-    /* Main container styling */
     .stApp {
         background-color: #fafafa;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
-    
-    /* Subtle metric cards */
     [data-testid="stMetricValue"] {
         font-size: 1.8rem !important;
         font-weight: 600 !important;
         color: #111827;
     }
-    
-    /* Clean inputs & textareas */
     .stTextInput input, .stNumberInput input, .stTextArea textarea {
         border-radius: 8px !important;
         border: 1px solid #e5e7eb !important;
         background-color: #ffffff !important;
     }
-    
-    /* Modern solid buttons */
     .stButton>button {
         border-radius: 8px !important;
         font-weight: 500 !important;
@@ -52,26 +45,15 @@ load_dotenv(dotenv_path="../.env")
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 
-DEFAULT_KEY = (st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or "").strip().strip('"').strip("'").strip()
+ACTIVE_KEY = (st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or "").strip().strip('"').strip("'").strip()
 
 # Initialize Supabase client
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    except Exception as e:
-        st.error(f"Database connection error: {e}")
-
-# --- SIDEBAR CONFIGURATION ---
-with st.sidebar:
-    st.subheader("Preferences")
-    user_api_key = st.text_input(
-        "API Access Key (Optional)", 
-        type="password",
-        placeholder="sk-ant-...",
-        help="Optional: Input your own Anthropic key if you prefer to use your account limits."
-    )
-    ACTIVE_KEY = user_api_key.strip() if user_api_key.strip() else DEFAULT_KEY
+    except Exception:
+        pass
 
 # --- MAIN HEADER ---
 st.title("Subscription Guardian")
@@ -158,35 +140,28 @@ contract_text = st.text_area("Contract or Terms Text", height=180, placeholder="
 
 if st.button("Review Text"):
     if contract_text.strip():
-        st.write("Checking text details...")
+        st.info("Analyzing document details...")
         try:
-            if not ACTIVE_KEY:
-                st.error("Service key unavailable. Please add an API key in the sidebar.")
-            else:
-                client = anthropic.Anthropic(api_key=ACTIVE_KEY)
-                
-                response = client.messages.create(
-                    model="claude-3-haiku-20240307",
-                    max_tokens=500,
-                    messages=[{
-                        "role": "user", 
-                        "content": (
-                            "Examine the following text for auto-renewal clauses, cancellation fees, price change terms, or hidden restrictions. "
-                            "Summarize key items clearly in bullet points.\n\n"
-                            "If the text is standard, neutral, or contains no unexpected fees/restrictions, respond strictly with: "
-                            "'Nothing to be aware of — no hidden fees or strict cancellation rules detected.'\n\n"
-                            f"Text:\n{contract_text}"
-                        )
-                    }]
-                )
-                
-                st.write("### Analysis Results")
-                st.write(response.content[0].text)
-        except anthropic.AuthenticationError:
-            st.error("Invalid key provided. Please check the API key string.")
-        except anthropic.NotFoundError:
-            st.error("Model access error. Please check account permissions.")
-        except Exception as e:
-            st.error(f"Unable to process text: {e}")
+            client = anthropic.Anthropic(api_key=ACTIVE_KEY)
+            
+            response = client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=500,
+                messages=[{
+                    "role": "user", 
+                    "content": (
+                        "Examine the following text for auto-renewal clauses, cancellation fees, price change terms, or hidden restrictions. "
+                        "Summarize key items clearly in bullet points.\n\n"
+                        "If the text is standard, neutral, or contains no unexpected fees/restrictions, respond strictly with: "
+                        "'Nothing to be aware of — no hidden fees or strict cancellation rules detected.'\n\n"
+                        f"Text:\n{contract_text}"
+                    )
+                }]
+            )
+            
+            st.write("### Review Results")
+            st.write(response.content[0].text)
+        except Exception:
+            st.error("The document review service is temporarily unavailable. Please try again in a few moments.")
     else:
         st.warning("Please paste contract text before reviewing.")
